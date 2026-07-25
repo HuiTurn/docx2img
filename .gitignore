@@ -1,48 +1,26 @@
-# Dependencies
+# --- Python ---
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
-.pytest_cache/
-.mypy_cache/
-.coverage
-coverage/
-htmlcov/
-
-# Build and distribution artifacts
+*.py[cod]
+*$py.class
+*.so
+.Python
 build/
 dist/
 *.egg-info/
 *.egg
-*.whl
-
-# Virtual environments
-venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 .venv/
+venv/
 env/
-ENV/
 
-# Logs
-*.log
-
-# Test outputs
-tests/output/
-
-# Environment variables
-.env
-.env.local
-*.env.*
-
-# IDE and editor files
-.vscode/
-.idea/
-*.swp
-*.swo
-*.tmp
-
-# OS generated files
+# --- OS / editor ---
 .DS_Store
 Thumbs.db
+*.swp
 
-# WorkBuddy workspace
+# --- Agent working dir (WorkBuddy) ---
 .workbuddy/
