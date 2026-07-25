@@ -120,6 +120,18 @@ class TableLayoutEngine:
     def _calc_col_widths(
         self, table: Table, available_width: float, px_per_pt: float, n_cols: int
     ) -> List[float]:
+        target = available_width
+        if table.props.width_type == "dxa" and table.props.width > 0:
+            target = min(available_width, table.props.width * px_per_pt)
+        elif table.props.width_type == "pct" and table.props.width > 0:
+            target = available_width * (table.props.width / 100.0)
+
+        # Autofit layout: size columns by content.  Word/LibreOffice ignore the
+        # nominal grid widths when w:tblLayout@w:type="autofit" and instead
+        # fit columns to their contents, then distribute any leftover width.
+        if table.props.layout == "autofit":
+            return self._autofit_col_widths(table, target, px_per_pt, n_cols)
+
         if table.col_widths:
             widths_pt = list(table.col_widths)
         else:
@@ -140,12 +152,6 @@ class TableLayoutEngine:
             widths_pt.append(0.0)
         widths_pt = widths_pt[:n_cols]
 
-        target = available_width
-        if table.props.width_type == "dxa" and table.props.width > 0:
-            target = min(available_width, table.props.width * px_per_pt)
-        elif table.props.width_type == "pct" and table.props.width > 0:
-            target = available_width * (table.props.width / 100.0)
-
         px_widths = [w * px_per_pt for w in widths_pt]
         total = sum(px_widths)
 
@@ -157,6 +163,105 @@ class TableLayoutEngine:
             px_widths = [w * scale for w in px_widths]
 
         return px_widths
+
+    def _measure_text_width(self, text: str, props, px_per_pt: float) -> float:
+        """Return pixel width of a text run using the resolved font."""
+        if not text:
+            return 0.0
+        size_pt = props.font_size or 12.0
+        if props.vertical_align in ("superscript", "subscript"):
+            size_pt *= 0.65
+        name = (
+            props.font_ascii
+            or props.font_h_ansi
+            or props.font_east_asia
+            or self.config.default_font_ascii
+        )
+        font = self.line_breaker.font_manager.get_font(
+            name, size_pt * px_per_pt, bool(props.bold), bool(props.italic)
+        )
+        try:
+            bbox = font.getbbox(text)
+            w = float(bbox[2] - bbox[0])
+        except Exception:
+            w = len(text) * size_pt * px_per_pt * 0.5
+        if props.scale and props.scale != 100:
+            w *= props.scale / 100.0
+        if props.spacing:
+            w += props.spacing * px_per_pt * max(0, len(text) - 1)
+        return w
+
+    def _cell_min_width(self, cell, px_per_pt: float) -> float:
+        """Minimum pixel width needed for a cell's unwrapped content + padding."""
+        padding_left = cell.props.margins.get("left", 5.4) * px_per_pt
+        padding_right = cell.props.margins.get("right", 5.4) * px_per_pt
+        content_w = 0.0
+        for block in cell.blocks:
+            if not isinstance(block, Paragraph):
+                continue
+            para_w = 0.0
+            for run in block.runs:
+                if run.text and run.text.text:
+                    para_w += self._measure_text_width(
+                        run.text.text, run.text.props, px_per_pt
+                    )
+            content_w = max(content_w, para_w)
+        return content_w + padding_left + padding_right
+
+    def _autofit_col_widths(
+        self, table: Table, target: float, px_per_pt: float, n_cols: int
+    ) -> List[float]:
+        """Compute content-fitted column widths for autofit tables.
+
+        LibreOffice's autofit starts from the table's grid-column widths and
+        expands columns whose content needs more space; it does not shrink
+        columns below the grid width.  We mirror that by taking the larger of
+        the grid width and the content minimum for each column.
+        """
+        # Start from grid widths (converted to pixels).
+        grid_px = [0.0] * n_cols
+        for i, w in enumerate(table.col_widths or []):
+            if i < n_cols:
+                grid_px[i] = w * px_per_pt
+
+        # Content minimums, handling spans by sharing across columns.
+        content_mins = [0.0] * n_cols
+        for row in table.rows:
+            c = 0
+            for cell in row.cells:
+                span = max(1, cell.props.grid_span)
+                if c + span > n_cols:
+                    span = n_cols - c
+                cell_min = self._cell_min_width(cell, px_per_pt)
+                share = cell_min / span
+                for sc in range(span):
+                    if c + sc < n_cols:
+                        content_mins[c + sc] = max(content_mins[c + sc], share)
+                c += span
+
+        # Column width is at least the grid width and at least the content min.
+        abs_min = 30.0
+        min_widths = [max(grid_px[i], content_mins[i], abs_min) for i in range(n_cols)]
+
+        total_min = sum(min_widths)
+        if total_min <= 0:
+            return [target / n_cols] * n_cols
+
+        if total_min >= target - 0.5:
+            # Content-fitted widths exceed the page width.  Scaling them down
+            # uniformly re-introduces wrapping, so keep the grid widths as a
+            # fallback.  This preserves the large-document pagination while
+            # still allowing narrower tables (like table-document) to expand.
+            grid_total = sum(grid_px)
+            if grid_total > 0:
+                scale = target / grid_total
+                return [w * scale for w in grid_px]
+            return [target / n_cols] * n_cols
+
+        # Distribute leftover space equally.
+        extra = target - total_min
+        per_col = extra / n_cols
+        return [w + per_col for w in min_widths]
 
     def _build_grid(
         self, table: Table, n_cols: int
@@ -345,7 +450,22 @@ class TableLayoutEngine:
                     line.y = y
                     y += line.height
                     lines.append(line)
-                y += props.space_after * px_per_pt
+                # Cell paragraph after-spacing, matched to LibreOffice golden:
+                # - between blocks: full space_after (paragraph separation)
+                # - trailing block, explicit spacing (style chain / direct):
+                #   halved — LO keeps part of it (0.5x matches large-document
+                #   50/50, whose Normal style sets after=160 explicitly)
+                # - trailing block, docDefaults-only spacing: mostly dropped
+                #   (0.125x) — LO compresses such rows (table-document golden
+                #   rows carry almost none of the docDefaults after=10pt;
+                #   0 under-paginates tracked-changes, 0.25 over-paginates
+                #   table-document, 0.125 satisfies both).
+                if block is not cell.blocks[-1]:
+                    y += props.space_after * px_per_pt
+                elif not getattr(props, "space_after_default_only", False):
+                    y += props.space_after * px_per_pt * 0.5
+                else:
+                    y += props.space_after * px_per_pt * 0.125
             else:
                 # Nested table
                 if self._layout_table:

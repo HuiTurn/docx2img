@@ -28,7 +28,17 @@ class FontManager:
         "Microsoft YaHei Light": ["msyhl", "微软雅黑 Light", "Microsoft YaHei", "msyh"],
         "KaiTi": ["kaiti", "楷体", "STKaiti", "stkaiti", "华文楷体"],
         "FangSong": ["fangsong", "仿宋", "STFangsong"],
-        "Calibri": ["calibri", "Arial", "arial", "Helvetica", "sans-serif"],
+        # Carlito is metric-compatible with Calibri (bundled with LibreOffice);
+        # prefer it when installed so line breaks match Word/LO closely.
+        "Calibri": ["calibri", "Carlito", "carlito", "Arial", "arial", "Helvetica", "sans-serif"],
+        "Calibri Light": ["calibri light", "calibril", "Carlito", "carlito", "Calibri", "Arial"],
+        # Cambria is a serif face; Caladea is its metric-compatible substitute.
+        "Cambria": ["cambria", "Caladea", "caladea", "Times New Roman", "times", "Georgia", "serif"],
+        "Cambria Math": ["cambria math", "Cambria", "cambria", "Times New Roman", "times"],
+        "Georgia": ["georgia", "Times New Roman", "times", "serif"],
+        "Garamond": ["garamond", "EB Garamond", "Georgia", "Times New Roman", "times"],
+        "Book Antiqua": ["book antiqua", "Palatino", "palatino", "Times New Roman", "times"],
+        "Century Gothic": ["century gothic", "Avant Garde", "Futura", "Arial", "arial"],
         "Courier New": ["cour", "Courier New", "DejaVu Sans Mono", "Liberation Mono"],
     }
 
@@ -116,7 +126,12 @@ class FontManager:
         self._cache: Dict[Tuple[str, int, bool, bool], ImageFont.ImageFont] = {}
         self._font_paths = self._discover_fonts()
         self._cmap_cache: Dict[Tuple[str, int], Optional[set]] = {}
+        self._metrics_cache: Dict[
+            Tuple[str, int, int], Tuple[float, float, float]
+        ] = {}
         self._missing_log: list = []
+        # codepoint -> resolved font path (or None) for glyph-coverage scan
+        self._char_font_cache: Dict[int, Optional[str]] = {}
 
     def font_has_char(self, font: ImageFont.ImageFont, ch: str) -> bool:
         """True if font cmap contains the codepoint (avoids .notdef tofu)."""
@@ -165,6 +180,22 @@ class FontManager:
             for local in self.STEM_LOCAL_NAMES.get(key, []):
                 if local.lower() not in font_paths:
                     font_paths[local.lower()] = path
+            # "Family-Style" stems (e.g. Carlito-Regular, Caladea-BoldItalic):
+            # register the bare family and style-suffixed keys used by
+            # _resolve_path ("<family>bd", "<family>i", "<family>bi").
+            if "-" in name:
+                family, _, style = name.rpartition("-")
+                fam_key = family.lower()
+                style_key = style.lower()
+                suffix = {
+                    "regular": "", "book": "",
+                    "bold": "bd", "italic": "i", "oblique": "i",
+                    "bolditalic": "bi", "boldoblique": "bi",
+                }.get(style_key)
+                if suffix is not None and fam_key:
+                    styled = fam_key + suffix
+                    if styled not in font_paths:
+                        font_paths[styled] = path
 
         for path in self.config.font_paths:
             if os.path.isfile(path):
@@ -224,6 +255,54 @@ class FontManager:
         self._cache[key] = font
         return font
 
+    def get_font_metrics(
+        self,
+        name: str,
+        size_px: float,
+        bold: bool = False,
+        italic: bool = False,
+    ) -> Tuple[float, float, float]:
+        """Return typographic metrics for a resolved font family in pixels.
+
+        The tuple is ``(ascent, descent, line_gap)``.  Uses the same
+        font-resolution path as ``get_font`` so callers can compute the natural
+        line height that LibreOffice includes in table cells (its default
+        behaviour applies the font's own line gap).
+        """
+        size_px = max(1.0, float(size_px))
+        path = self._resolve_family_path(name, bold, italic)
+        font_index = 0
+        if not path:
+            # The requested family may be absent while rendering still found a
+            # platform fallback (for example SimSun → Hiragino Sans GB on
+            # macOS).  Read metrics from that same fallback instead of silently
+            # returning zeros and collapsing its external leading.
+            fallback = self.get_font(name, size_px, bold, italic)
+            path = getattr(fallback, "path", None)
+            font_index = int(getattr(fallback, "index", 0) or 0)
+        if not path:
+            return (0.0, 0.0, 0.0)
+        key = (str(path), font_index, int(round(size_px)))
+        if key in self._metrics_cache:
+            return self._metrics_cache[key]
+        try:
+            from fontTools.ttLib import TTFont
+
+            tt = TTFont(path, fontNumber=font_index, lazy=True)
+            try:
+                upem = tt["head"].unitsPerEm
+                hhea = tt["hhea"]
+                asc = hhea.ascender * size_px / upem
+                desc = abs(hhea.descender) * size_px / upem
+                gap = hhea.lineGap * size_px / upem
+                res: Tuple[float, float, float] = (asc, desc, gap)
+            finally:
+                tt.close()
+        except Exception:
+            res = (0.0, 0.0, 0.0)
+        self._metrics_cache[key] = res
+        return res
+
     def get_font_for_char(
         self,
         ch: str,
@@ -276,10 +355,54 @@ class FontManager:
                     self._missing_log.append((ch, requested, name, getattr(font, "path", "")))
                 return font
 
+        # Last resort: none of the preferred families covers this codepoint.
+        # Scan every discovered font for one that does (glyph-coverage based
+        # substitution, mirroring LibreOffice / browser behaviour). This keeps
+        # symbols like U+2713 ✓ renderable even though the bundled Carlito /
+        # Caladea faces lack them, without hardcoding any character.
+        scanned = self._find_font_covering(ch, size_px, bold, italic)
+        if scanned is not None:
+            if ch.strip():
+                self._missing_log.append(
+                    (ch, requested, "*scan*", getattr(scanned, "path", ""))
+                )
+            return scanned
+
         font = self.get_font(requested, size_px, bold, italic)
         if ch.strip():
             self._missing_log.append((ch, requested, None, getattr(font, "path", "")))
         return font
+
+    def _find_font_covering(
+        self, ch: str, size_px: float, bold: bool, italic: bool
+    ) -> Optional[ImageFont.ImageFont]:
+        """Find any discovered font whose cmap covers ``ch``.
+
+        Results are cached per codepoint. Only reached when every preferred
+        family fails, so it never overrides normal text metrics; it merely
+        rescues exotic symbols that would otherwise render as tofu / nothing.
+        """
+        cp = ord(ch)
+        if cp in self._char_font_cache:
+            path = self._char_font_cache[cp]
+        else:
+            path = None
+            seen_paths = set()
+            for fp in self._font_paths.values():
+                if fp in seen_paths:
+                    continue
+                seen_paths.add(fp)
+                cmap = self._get_cmap(fp, 0)
+                if cmap and cp in cmap:
+                    path = fp
+                    break
+            self._char_font_cache[cp] = path
+        if not path:
+            return None
+        try:
+            return ImageFont.truetype(path, max(1, int(round(size_px))))
+        except (IOError, OSError, ValueError):
+            return None
 
     def _load_font(
         self, name: str, size: int, bold: bool, italic: bool
@@ -345,6 +468,37 @@ class FontManager:
             "nsimsun", "stsong", "stheiti",
         }
 
+    def _resolve_family_path(
+        self, name: str, bold: bool, italic: bool
+    ) -> Optional[str]:
+        """Resolve a family name to a font file, applying alias/fallback chains.
+
+        Mirrors the candidate ordering used by ``_load_font`` (canonical alias,
+        FONT_FALLBACKS, space-stripped stem) but returns the file path instead
+        of an ImageFont, so metric readers (``get_font_metrics``) resolve the
+        same physical file that rendering uses (e.g. Calibri → Carlito).
+        """
+        canonical = name
+        for alias_key, target in self.FAMILY_ALIASES.items():
+            if alias_key.lower() == (name or "").lower():
+                canonical = target
+                break
+
+        candidates = [name, canonical]
+        candidates.extend(self.FONT_FALLBACKS.get(canonical, []))
+        candidates.extend(self.FONT_FALLBACKS.get(name, []))
+        candidates.append((canonical or name or "").replace(" ", ""))
+
+        seen = set()
+        for candidate in candidates:
+            if not candidate or candidate in seen:
+                continue
+            seen.add(candidate)
+            path = self._resolve_path(candidate, bold, italic)
+            if path:
+                return path
+        return None
+
     def _resolve_path(self, name: str, bold: bool, italic: bool) -> Optional[str]:
         """Resolve a font name to a file path, preferring style variants."""
         key = name.lower()
@@ -396,13 +550,16 @@ class FontManager:
             ]
             return cjk + latin if prefer_cjk else latin + cjk
         if sys.platform == "darwin":
-            return [
-                "/System/Library/Fonts/PingFang.ttc",
+            cjk = [
+                "/System/Library/Fonts/Hiragino Sans GB.ttc",
                 "/System/Library/Fonts/STHeiti Light.ttc",
+            ]
+            latin = [
                 "/System/Library/Fonts/Supplemental/Arial.ttf",
                 "/System/Library/Fonts/Supplemental/Times New Roman.ttf",
                 "/Library/Fonts/Arial.ttf",
             ]
+            return cjk + latin if prefer_cjk else latin + cjk
         return [
             "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
             "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",

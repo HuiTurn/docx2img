@@ -274,24 +274,42 @@ def write_docx(
                 f"</Types>",
             )
 
+    members = {
+        "[Content_Types].xml": ct,
+        "_rels/.rels": ROOT_RELS,
+        "word/_rels/document.xml.rels": rels,
+        "word/document.xml": document_xml,
+        "word/styles.xml": styles_xml,
+        "word/theme/theme1.xml": theme_xml,
+    }
+    if numbering_xml:
+        members["word/numbering.xml"] = numbering_xml
+    for name, data in (media or {}).items():
+        members[f"word/media/{name}"] = data
+    for name, data in (headers or {}).items():
+        members[f"word/{name}"] = data
+    for name, data in (footers or {}).items():
+        members[f"word/{name}"] = data
+
+    # Tests call fixture factories repeatedly.  Avoid rewriting a semantically
+    # identical ZIP, since ZipFile timestamps would otherwise dirty every
+    # tracked binary fixture on each test run.
+    if path.exists():
+        try:
+            with zipfile.ZipFile(path) as current:
+                if set(current.namelist()) == set(members) and all(
+                    current.read(name) == (
+                        data.encode("utf-8") if isinstance(data, str) else data
+                    )
+                    for name, data in members.items()
+                ):
+                    return path
+        except (OSError, zipfile.BadZipFile):
+            pass
+
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("[Content_Types].xml", ct)
-        zf.writestr("_rels/.rels", ROOT_RELS)
-        zf.writestr("word/_rels/document.xml.rels", rels)
-        zf.writestr("word/document.xml", document_xml)
-        zf.writestr("word/styles.xml", styles_xml)
-        zf.writestr("word/theme/theme1.xml", theme_xml)
-        if numbering_xml:
-            zf.writestr("word/numbering.xml", numbering_xml)
-        if media:
-            for name, data in media.items():
-                zf.writestr(f"word/media/{name}", data)
-        if headers:
-            for name, data in headers.items():
-                zf.writestr(f"word/{name}", data)
-        if footers:
-            for name, data in footers.items():
-                zf.writestr(f"word/{name}", data)
+        for name, data in members.items():
+            zf.writestr(name, data)
     return path
 
 
@@ -390,6 +408,28 @@ def make_styled(path: Path) -> Path:
         + "</w:p>"
     )
     return write_docx(path, _document(h1 + body + _sect_pr()))
+
+
+def _ins(runs_xml: str) -> str:
+    return f'<w:ins w:id="1" w:author="test">{runs_xml}</w:ins>'
+
+
+def _del(runs_xml: str) -> str:
+    return f'<w:del w:id="2" w:author="test">{runs_xml}</w:del>'
+
+
+def make_tracked_changes(path: Path) -> Path:
+    """Paragraph with w:ins and w:del; ins text is kept, del text is dropped."""
+    para = (
+        '<w:p>'
+        + _run("Before ", bare=True)
+        + _ins(_run("inserted", bare=True))
+        + _run(" and ", bare=True)
+        + _del(_run("deleted", bare=True))
+        + _run("after.", bare=True)
+        + '</w:p>'
+    )
+    return write_docx(path, _document(para + _sect_pr()))
 
 
 def _tbl_borders() -> str:

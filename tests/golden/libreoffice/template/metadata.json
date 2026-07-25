@@ -1,0 +1,23 @@
+{
+  "case": "template",
+  "input_docx": "sample-files.com-template.docx",
+  "input_sha256": "1c675c67c6664e250b4b21a59a7b73f090d6d4e4626f151c55adbada9d79c6b1",
+  "libreoffice_version": "LibreOffice 26.2.5.2 cd7284b4cbbfeb507e630c1aac019f4157393acb",
+  "pdftoppm_version": "pdftoppm version 26.07.0",
+  "macos_version": "15.5",
+  "python_version": "3.13.12",
+  "dpi": 150,
+  "generated_at": "2026-07-24T17:57:30.660260+00:00",
+  "pdf_pages": 2,
+  "page_sizes_px": [
+    [
+      1275,
+      1650
+    ],
+    [
+      1275,
+      1650
+    ]
+  ],
+  "fonts_note": "LibreOffice used system-installed fonts; substitutions not individually traced (headless export does not report them)."
+}

@@ -1,5 +1,6 @@
 """Line breaking algorithm for paragraphs"""
 
+import math
 from typing import List, Tuple, Any, Optional
 from PIL import ImageFont
 
@@ -72,6 +73,7 @@ class LineBreaker:
         px_per_pt: float,
         first_line_extra: float = 0.0,
         wrap_zones: Optional[List[ExclusionZone]] = None,
+        grid_line_pitch_px: Optional[float] = None,
     ) -> List[Any]:
         """Break paragraph into LineBox objects.
 
@@ -82,6 +84,7 @@ class LineBreaker:
             first_line_extra: Extra indent for first line in pixels
                 (positive = first-line indent, negative = hanging)
             wrap_zones: Optional float exclusion zones in paragraph-local coords
+            grid_line_pitch_px: Optional section baseline-grid pitch in pixels
         """
         LineBox, GlyphBox = _get_line_box_classes()
         lines: List[Any] = []
@@ -142,7 +145,14 @@ class LineBreaker:
             nonlocal current_units, current_width, line_index, max_width, est_y, wrap_x
             if not current_units and not force:
                 return
-            line = self._units_to_line(current_units, para.props, px_per_pt, GlyphBox, LineBox)
+            line = self._units_to_line(
+                current_units,
+                para.props,
+                px_per_pt,
+                GlyphBox,
+                LineBox,
+                grid_line_pitch_px=grid_line_pitch_px,
+            )
             line._wrap_x = wrap_x  # type: ignore[attr-defined]
             line._wrap_width = max_width  # type: ignore[attr-defined]
             lines.append(line)
@@ -471,13 +481,23 @@ class LineBreaker:
 
         return None
 
-    def _units_to_line(self, units, para_props, px_per_pt, GlyphBox, LineBox):
+    def _units_to_line(
+        self,
+        units,
+        para_props,
+        px_per_pt,
+        GlyphBox,
+        LineBox,
+        grid_line_pitch_px: Optional[float] = None,
+    ):
         """Build a LineBox from wrap units."""
         line = LineBox()
         x = 0.0
         max_ascent = 0.0
         max_descent = 0.0
         max_height = 0.0
+        max_line_gap = 0.0
+        has_text = False
 
         for unit in units:
             text = unit["text"]
@@ -530,6 +550,7 @@ class LineBreaker:
             props = unit["props"]
             w = unit["width"]
             h = unit["height"]
+            has_text = True
 
             # Tab leaders: plain black dots — no hyperlink underline/color
             if unit.get("is_tab") and props is not None:
@@ -552,6 +573,29 @@ class LineBreaker:
                 except Exception:
                     pass
 
+            # LibreOffice (and Word) include the font's typographic line gap
+            # in the natural line height for auto line spacing.  PIL's
+            # getmetrics() only reports ascent+descent, so we look up the hhea
+            # lineGap explicitly and add it to the line's natural height.
+            line_gap = 0.0
+            if props is not None and self.font_manager is not None:
+                size_pt = props.font_size or 12.0
+                if props.vertical_align in ("superscript", "subscript"):
+                    size_pt *= 0.65
+                name = (
+                    props.font_ascii
+                    or props.font_h_ansi
+                    or props.font_east_asia
+                    or self.config.default_font_ascii
+                )
+                if name:
+                    try:
+                        _, _, line_gap = self.font_manager.get_font_metrics(
+                            name, size_pt * px_per_pt, bool(props.bold), bool(props.italic)
+                        )
+                    except Exception:
+                        line_gap = 0.0
+
             glyph = GlyphBox(
                 text=text,
                 x=x,
@@ -566,25 +610,100 @@ class LineBreaker:
             max_ascent = max(max_ascent, ascent)
             max_descent = max(max_descent, descent)
             max_height = max(max_height, h)
+            max_line_gap = max(max_line_gap, line_gap)
 
         line.width = x
-        line.ascent = max_ascent or max_height * 0.8
-        line.descent = max_descent or max_height * 0.2
+        image_only = not has_text and any(g.image is not None for g in line.glyphs)
+        if image_only:
+            # Inline images dominate the line: Word/LibreOffice use the image
+            # height directly without adding artificial text descent or applying
+            # the line-spacing multiplier to the whole image.
+            line.ascent = max_height
+            line.descent = 0.0
+            natural = max_height
+        else:
+            line.ascent = max_ascent or max_height * 0.8
+            line.descent = max_descent or max_height * 0.2
+            # Add the font's typographic line gap to the natural line height.
+            # LibreOffice includes this leading in the line box for auto line
+            # spacing, which is why dense text documents match golden better
+            # with the gap included than with PIL's ascent+descent alone.
+            natural = line.ascent + line.descent + max_line_gap
 
         # Line height from paragraph spacing rules
-        line.height = self._line_height(para_props, line.ascent + line.descent, px_per_pt)
+        line.height = self._line_height(
+            para_props,
+            natural,
+            px_per_pt,
+            image_only=image_only,
+            grid_line_pitch_px=grid_line_pitch_px,
+        )
         return line
 
-    def _line_height(self, para_props, natural_height: float, px_per_pt: float) -> float:
-        """Compute line box height from paragraph spacing."""
+    def _line_height(
+        self,
+        para_props,
+        natural_height: float,
+        px_per_pt: float,
+        image_only: bool = False,
+        grid_line_pitch_px: Optional[float] = None,
+    ) -> float:
+        """Compute line box height from paragraph spacing.
+
+        LibreOffice (our golden reference) interprets ``auto`` line spacing as
+        a direct multiple of the reference font size.  Single spacing equals
+        the font size, so ``w:line=276`` (1.15) yields ``1.15 × font_size``.
+        Word adds extra built-in leading (~1.18 × font_size for single), but
+        we deliberately follow LibreOffice here to match the visual-regression
+        golden references.
+
+        ``exact`` and ``atLeast`` are absolute values in points.  A line that
+        contains only an inline image uses the image height directly.
+        """
         rule = getattr(para_props, "line_spacing_rule", "auto") or "auto"
-        if rule == "exact" and para_props.line_spacing_exact is not None:
-            return para_props.line_spacing_exact * px_per_pt
-        if rule == "atLeast" and para_props.line_spacing_exact is not None:
-            return max(natural_height, para_props.line_spacing_exact * px_per_pt)
-        # auto: multiplier (default 1.0 → single spacing ≈ natural * 1.0 with slight leading)
-        mult = para_props.line_spacing if para_props.line_spacing else 1.0
-        return natural_height * mult
+        if image_only and rule == "auto":
+            resolved = natural_height
+        elif rule == "exact" and para_props.line_spacing_exact is not None:
+            resolved = para_props.line_spacing_exact * px_per_pt
+        elif rule == "atLeast" and para_props.line_spacing_exact is not None:
+            resolved = max(natural_height, para_props.line_spacing_exact * px_per_pt)
+        else:
+            # auto: multiplier (default 1.0 → single spacing)
+            #
+            # LibreOffice applies ``mult`` only to the font-size-based minimum,
+            # not to the font-metric natural height.  This means:
+            #   max(natural_height, font_size * mult)
+            # NOT:
+            #   max(natural_height * mult, font_size * mult)
+            # The former matches LO's golden-reference output; the latter
+            # over-inflates line height when mult > 1.0 (e.g. docDefaults
+            # line=276 → 1.15x caused large-document to render 52 pages
+            # instead of LO's 50).
+            mult = para_props.line_spacing if para_props.line_spacing else 1.0
+            # Use the paragraph-mark font size as the reference for leading.
+            ref_font_size = getattr(para_props, "mark_font_size", None) or 12.0
+            word_single = ref_font_size * px_per_pt
+            if mult <= 1.0 + 1e-6:
+                resolved = max(natural_height, word_single)
+            else:
+                resolved = max(natural_height, word_single * mult)
+
+        # A section document grid fixes baselines at linePitch intervals.
+        # Snap the resolved line box upward to a whole grid interval; a
+        # larger line therefore occupies two (or more) intervals instead of
+        # drifting subsequent baselines off-grid.
+        if (
+            grid_line_pitch_px
+            and grid_line_pitch_px > 0
+            and not image_only
+            and rule != "exact"
+        ):
+            intervals = max(
+                1,
+                int(math.ceil((resolved - 1e-6) / grid_line_pitch_px)),
+            )
+            return intervals * grid_line_pitch_px
+        return resolved
 
     def _tab_leader_at(self, current_x: float, tab_stops, px_per_pt: float) -> str:
         stops = sorted(tab_stops, key=lambda t: t.position) if tab_stops else []

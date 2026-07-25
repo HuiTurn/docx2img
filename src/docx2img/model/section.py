@@ -1,7 +1,7 @@
 """Section and page setup data models"""
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 from .enums import SectionType
 
 
@@ -10,6 +10,26 @@ class ColumnDef:
     """Column definition for multi-column layout"""
     width: float = 0.0         # pt
     space: float = 0.0         # pt
+
+
+@dataclass
+class PageBorderDef:
+    """Single side of a page border."""
+    style: str = "none"        # none, single, double, dashed, dotted, etc.
+    size: int = 0              # border width in 1/8 of pt
+    space: int = 0             # spacing from edge in points
+    color: Optional[str] = None  # hex color or "auto"
+
+
+@dataclass
+class PageBorders:
+    """Page border settings (w:pgBorders)."""
+    display: str = "allPages"  # allPages, notFirstPage, firstPage, none
+    offset_from: str = "page"  # page, text
+    top: PageBorderDef = field(default_factory=PageBorderDef)
+    bottom: PageBorderDef = field(default_factory=PageBorderDef)
+    left: PageBorderDef = field(default_factory=PageBorderDef)
+    right: PageBorderDef = field(default_factory=PageBorderDef)
 
 
 @dataclass
@@ -36,6 +56,8 @@ class Section:
         header_refs: Header references {type: rId}
         footer_refs: Footer references {type: rId}
         page_num_start: Starting page number
+        doc_grid_type: Document grid mode
+        doc_grid_line_pitch: Baseline grid pitch in points
         line_numbers: Enable line numbering
     """
     # Page
@@ -63,8 +85,14 @@ class Section:
     title_page: bool = False  # different first page
     # Page numbering
     page_num_start: Optional[int] = None
+    # Document grid (w:docGrid).  linePitch only controls vertical flow when
+    # type is "lines" or "linesAndChars"; the OOXML default mode is inactive.
+    doc_grid_type: str = "default"
+    doc_grid_line_pitch: Optional[float] = None
     # Line numbers
     line_numbers: bool = False
     # Cached parsed header/footer bodies (filled by DocumentParser)
     header_bodies: Dict[str, list] = field(default_factory=dict)  # type → blocks
     footer_bodies: Dict[str, list] = field(default_factory=dict)
+    # Page borders
+    page_borders: Optional[PageBorders] = None

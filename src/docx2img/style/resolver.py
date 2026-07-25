@@ -17,6 +17,18 @@ class StyleResolver:
       docDefaults → basedOn chain → current style → direct formatting
     """
 
+    # When True, table-style pPr (spacing fields only) is applied to cell
+    # paragraphs between docDefaults and the paragraph-style chain.
+    #
+    # Round 5 experiments enabled this by default (golden row heights
+    # implied LO applies table-style pPr) but caused regressions on
+    # template / tracked-changes / table-document (page count drops).
+    # The empirical side-effect on dense tables outweighed the benefit,
+    # so the flag stays DISABLED for the Round 5 baseline.  The
+    # parameter / chain / table_style stack in document.py are retained
+    # so a future ``Config.word_compatible`` flag can toggle this on.
+    _apply_table_style_ppr: bool = False
+
     def __init__(
         self,
         style_table: StyleTable,
@@ -32,9 +44,40 @@ class StyleResolver:
         self._cache: Dict[str, tuple] = {}
 
     def resolve_para(self, style_id: str, direct: ParaProps,
-                     direct_set: Optional[Set[str]] = None) -> ParaProps:
-        """Resolve final paragraph properties."""
+                     direct_set: Optional[Set[str]] = None,
+                     table_style_id: Optional[str] = None) -> ParaProps:
+        """Resolve final paragraph properties.
+
+        OOXML application order (ECMA-376 §17.7.2, low → high):
+          docDefaults → table style pPr → paragraph style chain → direct pPr.
+        ``table_style_id`` is the w:tblStyle of the innermost containing
+        table, applied only for paragraphs inside table cells.
+        """
         result = copy.deepcopy(self.default_ppr)
+
+        # Table style paragraph properties (e.g. TableGrid's after=0/line=240)
+        # sit between docDefaults and the paragraph style hierarchy per
+        # ECMA-376 §17.7.2.  LibreOffice applies the table-style *spacing*
+        # fields to cell paragraphs — verified by golden row heights showing
+        # table-doc rows fully compressed (no after-spacing) and large-doc
+        # rows carrying the full inherited after-spacing.  However, LO does
+        # NOT apply the table-style *line* rule inside cells; if we merge
+        # line_spacing here, rows shrink below LO baseline (24px vs 30px at
+        # 150dpi), causing table-document to under-paginate (4→2).  Keep
+        # line fields out of the merge.
+        if table_style_id and self._apply_table_style_ppr:
+            for sid in self._build_chain(table_style_id):
+                style = self.styles.get(sid)
+                if style and style.type == "table" and style.para_set:
+                    spacing_fields = {
+                        f for f in style.para_set
+                        if f in ("space_before", "space_after")
+                    }
+                    if spacing_fields:
+                        result = self._merge_ppr(
+                            result, style.para_props, spacing_fields
+                        )
+
         # Default paragraph style (e.g. Normal) if no explicit style
         if not style_id and self.styles.default_paragraph:
             style_id = self.styles.default_paragraph.style_id
@@ -62,6 +105,24 @@ class StyleResolver:
                     break
         if result.mark_font_size is None:
             result.mark_font_size = self.default_rpr.font_size
+
+        # Track whether space_after came only from docDefaults.  LibreOffice
+        # (our golden reference) drops docDefaults-only after-spacing for
+        # paragraphs inside table cells, while style-chain / direct spacing
+        # is kept.  Layout uses this flag for cell paragraphs.
+        explicit_after = False
+        for sid in chain:
+            style = self.styles.get(sid)
+            if style and style.para_set and "space_after" in style.para_set:
+                explicit_after = True
+                break
+        if not explicit_after:
+            dset = direct_set
+            if dset is None and direct is not None:
+                dset = _diff_fields(ParaProps(), direct)
+            if dset and "space_after" in dset:
+                explicit_after = True
+        result.space_after_default_only = not explicit_after
         return result
 
     def resolve_run(

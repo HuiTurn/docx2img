@@ -37,6 +37,9 @@ class DocumentParser:
         self._styles_parser = StylesParser()
         self._style_resolver: Optional[StyleResolver] = None
         self._table_parser: Optional[TableParser] = None
+        # Innermost containing table's w:tblStyle while parsing cell content;
+        # used to apply table-style pPr to cell paragraphs (ECMA-376 §17.7.2).
+        self._table_style_stack: List[str] = []
         self._drawing_parser: Optional[DrawingParser] = None
         self._math_parser = OmmlParser()
 
@@ -65,7 +68,9 @@ class DocumentParser:
             para_parser=self._parse_paragraph,
             nested_table_parser=None,
         )
-        self._table_parser._parse_nested = self._table_parser.parse
+        # Route nested tables through _parse_table so the table-style
+        # stack is maintained for nested cell paragraphs too.
+        self._table_parser._parse_nested = self._parse_table
         self._drawing_parser = DrawingParser(
             media=self.package.media,
             rels=self.package.document_rels,
@@ -131,7 +136,12 @@ class DocumentParser:
             style_id = direct.style_id or ""
 
         if self._style_resolver:
-            para.props = self._style_resolver.resolve_para(style_id, direct, direct_set)
+            table_style_id = (
+                self._table_style_stack[-1] if self._table_style_stack else None
+            )
+            para.props = self._style_resolver.resolve_para(
+                style_id, direct, direct_set, table_style_id=table_style_id
+            )
             para.props.style_id = style_id
         else:
             para.props = direct
@@ -142,18 +152,123 @@ class DocumentParser:
             if sect is not None:
                 para.section_break = self._parse_section(sect)
 
-        for child in elem:
-            tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
-            if tag == 'r':
-                run = self._parse_run(child, para_style_id=style_id)
-                if run:
-                    para.runs.append(run)
-            elif tag in ('oMath', 'oMathPara'):
+        self._append_paragraph_content(elem, para, style_id)
+
+        return para
+
+    def _append_paragraph_content(
+        self, container, para: Paragraph, para_style_id: str
+    ) -> None:
+        """Append visible paragraph children in document order.
+
+        Insertions and moved-to content are treated as accepted revisions;
+        deletions and moved-from content are omitted.  Transparent containers
+        such as hyperlinks and content controls are traversed recursively so
+        revision wrappers do not make their nested runs disappear.
+        """
+        for child in container:
+            tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+            if tag == "pPr":
+                continue
+            if tag in ("del", "moveFrom"):
+                continue
+            if tag == "r":
+                para.runs.extend(
+                    self._parse_run_sequence(
+                        child,
+                        para_style_id=para_style_id,
+                        target_para=para,
+                    )
+                )
+                continue
+            if tag in ("oMath", "oMathPara"):
                 ast = self._math_parser.parse_element(child)
                 if ast is not None:
                     para.runs.append(Run(math=MathRun(ast=ast)))
+                continue
+            if tag == "AlternateContent":
+                choice = child.find(f"{{{NS.MC}}}Choice")
+                fallback = child.find(f"{{{NS.MC}}}Fallback")
+                selected = choice if choice is not None else fallback
+                if selected is not None:
+                    self._append_paragraph_content(
+                        selected, para, para_style_id
+                    )
+                continue
 
-        return para
+            # w:ins, w:moveTo, w:hyperlink, w:smartTag, w:customXml,
+            # w:sdt/w:sdtContent and w:fldSimple are transparent for our
+            # accepted-revisions rendering model.
+            self._append_paragraph_content(child, para, para_style_id)
+
+    def _parse_run_sequence(
+        self,
+        elem,
+        para_style_id: str = "",
+        target_para: Optional[Paragraph] = None,
+    ) -> List[Run]:
+        """Parse a run while preserving interleaved break/tab markers.
+
+        A w:r may contain ``lastRenderedPageBreak`` followed by text, or text
+        on both sides of a normal ``w:br``.  Returning only one Run would drop
+        either the marker or the text, so split such XML into ordered IR runs.
+        """
+        marker_names = {"br", "tab", "lastRenderedPageBreak"}
+        children = list(elem)
+        if not any(
+            (child.tag.split("}")[-1] if "}" in child.tag else child.tag)
+            in marker_names
+            for child in children
+        ):
+            run = self._parse_run(
+                elem,
+                para_style_id=para_style_id,
+                target_para=target_para,
+            )
+            return [run] if run else []
+
+        import copy
+
+        r_pr = elem.find(f"{{{NS.W}}}rPr")
+        result: List[Run] = []
+        buffered = []
+
+        def flush() -> None:
+            if not buffered:
+                return
+            fragment = ET.Element(elem.tag, elem.attrib)
+            if r_pr is not None:
+                fragment.append(copy.deepcopy(r_pr))
+            for item in buffered:
+                fragment.append(copy.deepcopy(item))
+            run = self._parse_run(
+                fragment,
+                para_style_id=para_style_id,
+                target_para=target_para,
+            )
+            if run:
+                result.append(run)
+            buffered.clear()
+
+        for child in children:
+            tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+            if tag == "rPr":
+                continue
+            if tag in marker_names:
+                flush()
+                if tag == "tab":
+                    result.append(Run(tab=TabRun()))
+                else:
+                    break_type = (
+                        child.get(f"{{{NS.W}}}type", "line")
+                        if tag == "br"
+                        else "page"
+                    )
+                    result.append(Run(brk=BreakRun(break_type=break_type)))
+            else:
+                buffered.append(child)
+        flush()
+        return result
 
     def _parse_para_extras(self, elem, props: ParaProps, fields: set) -> None:
         """Parse tabs / numbering / pStyle into props."""
@@ -195,7 +310,7 @@ class DocumentParser:
                     props.num_level = int(ilvl_val)
                     fields.add("num_level")
 
-    def _parse_run(self, elem, para_style_id: str = "") -> Optional[Run]:
+    def _parse_run(self, elem, para_style_id: str = "", target_para: Optional[Paragraph] = None) -> Optional[Run]:
         """Parse w:r to Run with style resolution."""
         run = Run()
 
@@ -212,7 +327,36 @@ class DocumentParser:
 
         # Drawing / image / textbox
         drawing = elem.find(f"{{{NS.W}}}drawing")
+        if drawing is None:
+            # Word often wraps w:drawing inside mc:AlternateContent > mc:Choice
+            alt = elem.find(f"{{{NS.MC}}}AlternateContent")
+            if alt is not None:
+                choice = alt.find(f"{{{NS.MC}}}Choice")
+                fallback = alt.find(f"{{{NS.MC}}}Fallback")
+                container = choice if choice is not None else fallback
+                if container is not None:
+                    drawing = container.find(f".//{{{NS.W}}}drawing")
+
         if drawing is not None and self._drawing_parser is not None:
+            # Check for WordprocessingGroup (wpg:wgp) first
+            group = self._drawing_parser.parse_group(drawing)
+            if group is not None:
+                # Group contains image + textboxes + lines
+                img = group.get("image")
+                if img:
+                    run.image = img
+                # Store textboxes and lines as group_items on the paragraph
+                group_has_items = False
+                if target_para is not None:
+                    for tbox in group.get("textboxes", []):
+                        target_para.group_items.append({"type": "textbox", "data": tbox})
+                        group_has_items = True
+                    for line in group.get("lines", []):
+                        target_para.group_items.append({"type": "line", "data": line})
+                        group_has_items = True
+                if run.image or group_has_items:
+                    return run
+
             image_run = self._drawing_parser.parse(drawing)
             if image_run:
                 run.image = image_run
@@ -261,8 +405,18 @@ class DocumentParser:
         """Parse w:tbl to Table"""
         if self._table_parser is None:
             self._table_parser = TableParser(self._parse_paragraph)
-            self._table_parser._parse_nested = self._table_parser.parse
-        return self._table_parser.parse(elem)
+            self._table_parser._parse_nested = self._parse_table
+        style_id = ""
+        tbl_pr = elem.find(f"{{{NS.W}}}tblPr")
+        if tbl_pr is not None:
+            st = tbl_pr.find(f"{{{NS.W}}}tblStyle")
+            if st is not None:
+                style_id = st.get(f"{{{NS.W}}}val", "") or ""
+        self._table_style_stack.append(style_id)
+        try:
+            return self._table_parser.parse(elem)
+        finally:
+            self._table_style_stack.pop()
 
     def _parse_section(self, elem) -> Optional[Section]:
         """Parse w:sectPr to Section"""
@@ -360,6 +514,40 @@ class DocumentParser:
             start = pg_num.get(f"{{{NS.W}}}start")
             if start:
                 section.page_num_start = int(start)
+
+        # Document baseline grid (w:docGrid).  linePitch is expressed in
+        # twips, but is active vertically only for type=lines/linesAndChars.
+        # An omitted type means the OOXML "default" (inactive) mode.
+        doc_grid = elem.find(f"{{{NS.W}}}docGrid")
+        if doc_grid is not None:
+            section.doc_grid_type = doc_grid.get(
+                f"{{{NS.W}}}type", "default"
+            )
+            line_pitch = doc_grid.get(f"{{{NS.W}}}linePitch")
+            if line_pitch:
+                pitch_pt = Units.parse_twips(line_pitch)
+                if pitch_pt > 0:
+                    section.doc_grid_line_pitch = pitch_pt
+
+        # Page borders (w:pgBorders)
+        pg_borders = elem.find(f"{{{NS.W}}}pgBorders")
+        if pg_borders is not None:
+            from ..model.section import PageBorders, PageBorderDef
+            borders = PageBorders(
+                display=pg_borders.get(f"{{{NS.W}}}display", "allPages"),
+                offset_from=pg_borders.get(f"{{{NS.W}}}offsetFrom", "page"),
+            )
+            for side in ("top", "bottom", "left", "right"):
+                side_elem = pg_borders.find(f"{{{NS.W}}}{side}")
+                if side_elem is not None:
+                    bd = PageBorderDef(
+                        style=side_elem.get(f"{{{NS.W}}}val", "none"),
+                        size=int(side_elem.get(f"{{{NS.W}}}sz", "0")),
+                        space=int(side_elem.get(f"{{{NS.W}}}space", "0")),
+                        color=side_elem.get(f"{{{NS.W}}}color"),
+                    )
+                    setattr(borders, side, bd)
+            section.page_borders = borders
 
         return section
 

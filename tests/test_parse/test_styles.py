@@ -76,6 +76,26 @@ STYLES_XML = b"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
       <w:i/>
     </w:rPr>
   </w:style>
+
+  <w:style w:type="table" w:default="1" w:styleId="TableNormal">
+    <w:name w:val="Normal Table"/>
+  </w:style>
+
+  <w:style w:type="table" w:styleId="TableGrid">
+    <w:name w:val="Table Grid"/>
+    <w:basedOn w:val="TableNormal"/>
+    <w:pPr>
+      <w:spacing w:after="0" w:line="240" w:lineRule="auto"/>
+    </w:pPr>
+  </w:style>
+
+  <w:style w:type="paragraph" w:styleId="CellSpaced">
+    <w:name w:val="Cell Spaced"/>
+    <w:basedOn w:val="Normal"/>
+    <w:pPr>
+      <w:spacing w:after="240"/>
+    </w:pPr>
+  </w:style>
 </w:styles>
 """
 
@@ -187,9 +207,109 @@ class TestStyleResolver:
         assert abs(props.space_before - 24.0) < 0.1  # 480 twips
         assert props.outline_level == 0
 
+    def test_table_style_ppr_applies_to_cell_paragraph(self):
+        """Table style pPr (after=0) overrides docDefaults for Normal cell
+        paragraphs when the flag is enabled.  Only spacing fields are
+        merged (LibreOffice behaviour: golden row heights = line + after).
+
+        Round 5 regression: enabling this caused page-count drops in
+        template / tracked-changes / table-document so the flag stays
+        off by default; the test asserts the merge logic still works.
+        """
+        table, default_rpr, default_ppr = StylesParser().parse(STYLES_XML)
+        saved = StyleResolver._apply_table_style_ppr
+        try:
+            StyleResolver._apply_table_style_ppr = True
+            resolver = StyleResolver(table, default_rpr=default_rpr, default_ppr=default_ppr)
+            props = resolver.resolve_para(
+                "", ParaProps(), set(), table_style_id="TableGrid"
+            )
+            assert props.space_after == 0.0
+            # line_spacing is NOT overridden by table-style pPr (LO keeps
+            # docDefaults 1.15 inside cells; merging it shrinks rows too
+            # far below LO baseline).
+            assert abs(props.line_spacing - 1.15) < 0.01  # docDefaults 276/240
+        finally:
+            StyleResolver._apply_table_style_ppr = saved
+
+    def test_table_style_ppr_can_be_disabled(self):
+        """With the class flag off, table-style pPr does NOT affect cells."""
+        table, default_rpr, default_ppr = StylesParser().parse(STYLES_XML)
+        saved = StyleResolver._apply_table_style_ppr
+        try:
+            StyleResolver._apply_table_style_ppr = False
+            resolver = StyleResolver(table, default_rpr=default_rpr, default_ppr=default_ppr)
+            props = resolver.resolve_para(
+                "", ParaProps(), set(), table_style_id="TableGrid"
+            )
+            assert abs(props.space_after - 8.0) < 0.1  # docDefaults 160 twips
+        finally:
+            StyleResolver._apply_table_style_ppr = saved
+
+    def test_paragraph_style_overrides_table_style(self):
+        """Explicit paragraph-style spacing beats table style pPr."""
+        table, default_rpr, default_ppr = StylesParser().parse(STYLES_XML)
+        resolver = StyleResolver(table, default_rpr=default_rpr, default_ppr=default_ppr)
+        props = resolver.resolve_para(
+            "CellSpaced", ParaProps(), set(), table_style_id="TableGrid"
+        )
+        assert abs(props.space_after - 12.0) < 0.1  # 240 twips from CellSpaced
+        # line untouched by both table style and CellSpaced
+        assert abs(props.line_spacing - 1.15) < 0.01
+
+    def test_no_table_style_uses_doc_defaults(self):
+        """Without table context, docDefaults spacing is preserved."""
+        table, default_rpr, default_ppr = StylesParser().parse(STYLES_XML)
+        resolver = StyleResolver(table, default_rpr=default_rpr, default_ppr=default_ppr)
+        props = resolver.resolve_para("", ParaProps(), set())
+        assert abs(props.space_after - 8.0) < 0.1  # 160 twips docDefaults
+
+    def test_direct_spacing_overrides_table_style(self):
+        """Direct pPr spacing beats table style pPr."""
+        table, default_rpr, default_ppr = StylesParser().parse(STYLES_XML)
+        resolver = StyleResolver(table, default_rpr=default_rpr, default_ppr=default_ppr)
+        direct = ParaProps(space_after=6.0)
+        props = resolver.resolve_para(
+            "", direct, {"space_after"}, table_style_id="TableGrid"
+        )
+        assert props.space_after == 6.0
+
     def test_character_style_emphasis(self):
         table, default_rpr, default_ppr = StylesParser().parse(STYLES_XML)
         resolver = StyleResolver(table, default_rpr=default_rpr, default_ppr=default_ppr)
         props = resolver.resolve_run("Emphasis", "Normal", RunProps(), set())
         assert props.italic is True
         assert props.font_size == 11.0  # from docDefaults
+
+    def test_space_after_default_only_flag_docdefaults(self):
+        """Normal style sets no spacing → space_after comes only from docDefaults."""
+        table, default_rpr, default_ppr = StylesParser().parse(STYLES_XML)
+        resolver = StyleResolver(table, default_rpr=default_rpr, default_ppr=default_ppr)
+        props = resolver.resolve_para("", ParaProps(), set())
+        assert props.space_after_default_only is True
+
+    def test_space_after_default_only_flag_style_chain(self):
+        """CellSpaced style sets after=240 explicitly → flag is False."""
+        table, default_rpr, default_ppr = StylesParser().parse(STYLES_XML)
+        resolver = StyleResolver(table, default_rpr=default_rpr, default_ppr=default_ppr)
+        props = resolver.resolve_para("CellSpaced", ParaProps(), set())
+        assert props.space_after_default_only is False
+        assert abs(props.space_after - 12.0) < 0.1  # 240 twips
+
+    def test_space_after_default_only_flag_direct(self):
+        """Direct pPr spacing → flag is False."""
+        table, default_rpr, default_ppr = StylesParser().parse(STYLES_XML)
+        resolver = StyleResolver(table, default_rpr=default_rpr, default_ppr=default_ppr)
+        props = resolver.resolve_para(
+            "", ParaProps(space_after=6.0), {"space_after"}
+        )
+        assert props.space_after_default_only is False
+        assert props.space_after == 6.0
+
+    def test_space_after_default_only_heading_explicit_zero(self):
+        """Heading1 sets after=0 explicitly — that still counts as explicit."""
+        table, default_rpr, default_ppr = StylesParser().parse(STYLES_XML)
+        resolver = StyleResolver(table, default_rpr=default_rpr, default_ppr=default_ppr)
+        props = resolver.resolve_para("Heading1", ParaProps(), set())
+        assert props.space_after_default_only is False
+        assert props.space_after == 0.0

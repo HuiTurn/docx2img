@@ -1,8 +1,11 @@
 """Paragraph and Run data models"""
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
+from typing import TYPE_CHECKING, List, Optional, Tuple
 from .enums import Alignment, TabStopType
+
+if TYPE_CHECKING:
+    from .section import Section
 
 
 @dataclass
@@ -115,6 +118,10 @@ class ParaProps:
     hanging_chars: Optional[int] = None
     # Paragraph mark font size (from pPr/rPr/sz or style chain)
     mark_font_size: Optional[float] = None
+    # True when space_after comes only from docDefaults (no style chain or
+    # direct formatting set it).  LibreOffice suppresses docDefaults-only
+    # after-spacing for paragraphs inside table cells.
+    space_after_default_only: bool = False
     tab_stops: List[TabStop] = field(default_factory=list)
     keep_next: bool = False
     keep_lines: bool = False
@@ -177,7 +184,7 @@ class TextBoxRun:
     pos_y: float = 0.0  # pt
     wrap_type: str = "square"
     fill: Optional[tuple] = None
-    border_color: tuple = (0, 0, 0)
+    border_color: Optional[tuple] = None
 
 
 @dataclass
@@ -215,12 +222,15 @@ class Run:
 @dataclass
 class Paragraph:
     """Paragraph model
-    
+
     Attributes:
         runs: List of runs
         props: Paragraph properties
         section_break: If this paragraph ends a section (pPr/sectPr)
+        group_items: Extra items from WordprocessingGroup (textboxes, lines)
+            that are sibling to runs within the same paragraph area.
     """
     runs: List[Run] = field(default_factory=list)
     props: ParaProps = field(default_factory=ParaProps)
     section_break: Optional["Section"] = None
+    group_items: List[dict] = field(default_factory=list)  # textbox/line dicts from wpg:wgp

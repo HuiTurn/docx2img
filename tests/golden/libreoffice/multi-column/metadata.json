@@ -1,0 +1,27 @@
+{
+  "case": "multi-column",
+  "input_docx": "sample-files.com-multi-column.docx",
+  "input_sha256": "a4b4a8a7e6ecdc31f90cab6e2fb53fb50c72b94232593747dbc1d023bdbc4d6c",
+  "libreoffice_version": "LibreOffice 26.2.5.2 cd7284b4cbbfeb507e630c1aac019f4157393acb",
+  "pdftoppm_version": "pdftoppm version 26.07.0",
+  "macos_version": "15.5",
+  "python_version": "3.13.12",
+  "dpi": 150,
+  "generated_at": "2026-07-24T17:57:26.111013+00:00",
+  "pdf_pages": 3,
+  "page_sizes_px": [
+    [
+      1275,
+      1650
+    ],
+    [
+      1275,
+      1650
+    ],
+    [
+      1275,
+      1650
+    ]
+  ],
+  "fonts_note": "LibreOffice used system-installed fonts; substitutions not individually traced (headless export does not report them)."
+}

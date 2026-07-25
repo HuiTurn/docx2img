@@ -24,6 +24,15 @@ W14 = "http://schemas.microsoft.com/office/word/2010/wordml"
 # Office Math
 M = "http://schemas.openxmlformats.org/officeDocument/2006/math"
 
+# Markup Compatibility (mc:AlternateContent wrapper used by Word)
+MC = "http://schemas.openxmlformats.org/markup-compatibility/2006"
+
+# WordprocessingGroup (grouped shapes: wpg:wgp)
+WPG = "http://schemas.microsoft.com/office/word/2010/wordprocessingGroup"
+
+# WordprocessingShape (text boxes, shapes: wps:wsp)
+WPS = "http://schemas.microsoft.com/office/word/2010/wordprocessingShape"
+
 
 class NS:
     """Namespace map for ElementTree"""
@@ -36,6 +45,9 @@ class NS:
     WP = WP
     W14 = W14
     M = M
+    MC = MC
+    WPG = WPG
+    WPS = WPS
 
     MAP = {
         "w": W,
@@ -45,6 +57,9 @@ class NS:
         "wp": WP,
         "w14": W14,
         "m": M,
+        "mc": MC,
+        "wpg": WPG,
+        "wps": WPS,
     }
 
     @classmethod

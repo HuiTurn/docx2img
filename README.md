@@ -40,6 +40,25 @@ convert("input.docx", "output.png", dpi=150)
 python -m pytest tests/ -v
 ```
 
+The repository also includes an optional LibreOffice-based visual-regression
+workflow for complex real-world documents:
+
+```bash
+python scripts/run_visual_regression.py
+```
+
+Its corpus lives under `testdata/regression/` and reference pages under
+`tests/golden/libreoffice/`. Regenerate references only when intentionally
+updating the baseline:
+
+```bash
+python scripts/generate_lo_golden.py --force
+```
+
+Golden generation requires LibreOffice and Poppler's `pdftoppm`; neither is a
+runtime dependency. The external corpus and optional metric-compatible fonts
+must have their redistribution licences reviewed before publishing them.
+
 ## License
 
 MIT

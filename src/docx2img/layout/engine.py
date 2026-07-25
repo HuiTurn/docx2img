@@ -1,14 +1,14 @@
 """Layout engine - Converts IR to layout tree with pages"""
 
 from dataclasses import dataclass, field
-from typing import List, Any, Optional
+from typing import List, Any, Optional, Tuple
 
 from ..config import Config
 from ..model.document import DocumentModel
 from ..model.paragraph import Paragraph
 from ..model.table import Table
 from ..model.section import Section
-from ..model.enums import Alignment
+from ..model.enums import Alignment, SectionType
 from ..font.manager import FontManager
 from .line_breaker import LineBreaker
 from .page_breaker import PageBreaker
@@ -65,6 +65,7 @@ class BlockBox:
     space_before: float = 0.0
     space_after: float = 0.0
     page_break_before: bool = False
+    page_break_after: bool = False
 
 
 @dataclass
@@ -84,6 +85,13 @@ class PageBox:
     section: Optional[Section] = None
     page_number: int = 1
     total_pages: int = 1
+    # Zero-based physical page index within the owning section.  This is
+    # distinct from page_number because numbering can restart at any value.
+    section_page_index: int = 0
+    # True when this page was created because of an explicit w:br type="page"
+    # or w:pageBreakBefore.  Sparse-page merging must never fold such pages
+    # into their predecessor — the author demanded a page break here.
+    had_hard_break: bool = False
 
 
 class LayoutEngine:
@@ -103,31 +111,247 @@ class LayoutEngine:
         )
         self.numbering_engine = NumberingEngine(document.numbering)
         self.float_layout = FloatLayoutEngine()
+        self._grid_line_pitch_px: Optional[float] = None
 
     def layout(self) -> List[PageBox]:
         """Perform layout and return pages (supports multi-section)."""
         parts = self._split_sections()
         all_pages: List[PageBox] = []
-        for section, elements in parts:
-            pages = self._layout_section(section, elements)
-            all_pages.extend(pages)
+        for idx, (section, elements) in enumerate(parts):
+            # A `continuous` section break keeps flowing on the current page
+            # instead of forcing a new one (matches Word/LibreOffice).  Only
+            # possible when the physical page geometry is unchanged.
+            cont_page = None
+            cont_y = None
+            if (
+                idx > 0
+                and section.section_type == SectionType.CONTINUOUS
+                and all_pages
+                and self._same_page_geometry(all_pages[-1], section)
+            ):
+                cont_page = all_pages[-1]
+                cont_y = self._page_content_bottom(cont_page)
+            # LibreOffice/Word balance the columns of a multi-column section
+            # that ends with a continuous break into the next section.
+            next_is_continuous = (
+                idx + 1 < len(parts)
+                and parts[idx + 1][0].section_type == SectionType.CONTINUOUS
+            )
+            pages = self._layout_section(
+                section,
+                elements,
+                start_page=cont_page,
+                start_y=cont_y,
+                balance=next_is_continuous,
+            )
+            if cont_page is not None:
+                # First returned page is the page we continued on; it is
+                # already in all_pages.
+                all_pages.extend(pages[1:])
+            else:
+                all_pages.extend(pages)
 
-        total = len(all_pages) if all_pages else 1
-        start = 1
-        for i, page in enumerate(all_pages):
-            if page.section and page.section.page_num_start is not None and i == 0:
-                start = page.section.page_num_start
-            # Per-section start: if section changes and has page_num_start
-            page.page_number = start + i
-            page.total_pages = total
-            self._attach_header_footer(page, i, total)
+        # Attach once before sparse-page merging so decorated pages are not
+        # accidentally absorbed.  We rebuild headers/footers after the merge,
+        # because PAGE/NUMPAGES fields depend on the final page list.
+        self._stamp_and_attach_pages(all_pages)
+
+        # Merge trailing/sparse pages back into the previous page when:
+        # - same physical page (identical width/height/margins)
+        # - target page is sparse (<8% content height used)
+        # - target page has no page-level floats, header, footer, or textboxes
+        #   that would be lost by absorbing its blocks into the prior page.
+        # This eliminates the small "stub" pages that LibreOffice does not
+        # generate when a section ends mid-document.  Must run after
+        # _attach_header_footer so we can detect header/footer presence.
+        all_pages = self._merge_sparse_pages(all_pages)
+
+        for page in all_pages:
+            page.header_blocks.clear()
+            page.footer_blocks.clear()
+        self._stamp_and_attach_pages(all_pages)
 
         return all_pages if all_pages else [PageBox(width=595, height=842)]
 
-    def _attach_header_footer(self, page: PageBox, page_index: int, total: int) -> None:
+    def _stamp_and_attach_pages(self, pages: List[PageBox]) -> None:
+        """Apply final page labels, section-local indices, and decorations."""
+        total = len(pages) if pages else 1
+        previous_section = None
+        current_number = 0
+        section_page_index = 0
+
+        for page in pages:
+            section = page.section
+            new_section = section is not previous_section
+            if new_section:
+                section_page_index = 0
+                if section and section.page_num_start is not None:
+                    current_number = section.page_num_start
+                else:
+                    current_number += 1
+            else:
+                section_page_index += 1
+                current_number += 1
+
+            page.page_number = current_number
+            page.total_pages = total
+            page.section_page_index = section_page_index
+            self._attach_header_footer(page, section_page_index, total)
+            previous_section = section
+
+    @staticmethod
+    def _block_has_ink(block: BlockBox) -> bool:
+        """True when the block renders anything visible (text/image/table)."""
+        if block.table_box is not None:
+            return True
+        for line in block.lines:
+            for g in line.glyphs:
+                if (g.text and g.text.strip()) or g.image is not None \
+                        or g.math_box is not None:
+                    return True
+        return bool(block.float_boxes or block.textbox_boxes)
+
+    @staticmethod
+    def _is_invisible_section_break(element) -> bool:
+        """Empty paragraph that only carries a sectPr.
+
+        Word/LibreOffice do not render a blank line for the paragraph mark
+        that ends a section when it has no visible content of its own, so
+        laying it out as an empty line pushes everything below downwards.
+        """
+        if not isinstance(element, Paragraph) or element.section_break is None:
+            return False
+        for run in element.runs:
+            if run.text is not None and run.text.text:
+                return False
+            if run.image is not None or run.math is not None \
+                    or run.textbox is not None:
+                return False
+        return not element.group_items
+
+    def _same_page_geometry(self, page: PageBox, section: Section) -> bool:
+        """True when `section` uses the same physical page as `page`."""
+        px_per_pt = self.config.px_per_pt
+        w, h = self._page_size(section, px_per_pt)
+        return abs(page.width - w) < 0.5 and abs(page.height - h) < 0.5
+
+    @staticmethod
+    def _page_content_bottom(page: PageBox) -> float:
+        """Y coordinate where new flow content may start on `page`."""
+        if not page.blocks:
+            return page.margin_top
+        return max(b.y + b.height for b in page.blocks)
+
+    @staticmethod
+    def _translate_block(block: BlockBox, dx: float, dy: float) -> None:
+        """Shift an already-finalized block (and its content) by dx/dy."""
+        block.x += dx
+        block.y += dy
+        if block.table_box is not None:
+            block.table_box.x += dx
+            block.table_box.y += dy
+        for line in block.lines:
+            line.x += dx
+            line.y += dy
+            for g in line.glyphs:
+                g.x += dx
+                g.y += dy
+        for fb in block.float_boxes:
+            fb.x += dx
+            fb.y += dy
+        for tb in block.textbox_boxes:
+            tb["x"] += dx
+            tb["y"] += dy
+            for ib in tb["blocks"]:
+                ib.y += dy
+                for line in ib.lines:
+                    line.x += dx
+                    line.y += dy
+                    for g in line.glyphs:
+                        g.x += dx
+                        g.y += dy
+
+    @staticmethod
+    def _merge_sparse_pages(pages: List["PageBox"]) -> List["PageBox"]:
+        """Fold sparse trailing pages into the previous one when safe.
+
+        Section boundaries in OOXML sometimes force a new page even when only
+        a few small paragraphs are left over. LibreOffice visually appends
+        those onto the prior page; we mirror that here to avoid emitting a
+        near-empty page purely because of section bookkeeping.
+
+        We only walk *trailing* sparse pages: a page is only a merge candidate
+        when the pages after it are not also sparse (avoids cascading merges
+        in fixtures that legitimately produce many sparse pages).
+        """
+        if len(pages) < 2:
+            return pages
+
+        result: List[PageBox] = list(pages)
+        # Fold at most one trailing page into its predecessor. A cascade would
+        # collapse fixtures that legitimately emit multiple short pages.
+        if len(result) >= 2:
+            prev = result[-2]
+            cur = result[-1]
+            usable_h = prev.height - prev.margin_top - prev.margin_bottom
+            prev_bottom = (
+                max((b.y + b.height for b in prev.blocks), default=prev.margin_top)
+            )
+            cur_top = min((b.y for b in cur.blocks), default=cur.margin_top)
+            cur_bottom = max(
+                (b.y + b.height for b in cur.blocks), default=cur.margin_top
+            )
+            cur_used = max(0.0, cur_bottom - cur_top)
+
+            same_geometry = (
+                abs(prev.width - cur.width) < 0.5
+                and abs(prev.height - cur.height) < 0.5
+                and abs(prev.margin_top - cur.margin_top) < 0.5
+                and abs(prev.margin_bottom - cur.margin_bottom) < 0.5
+                and abs(prev.margin_left - cur.margin_left) < 0.5
+                and abs(prev.margin_right - cur.margin_right) < 0.5
+            )
+            cur_is_tiny = usable_h > 0 and cur_used / usable_h < 0.15
+            prev_has_room = (
+                usable_h > 0
+                and prev_bottom + cur_used <= prev.height - prev.margin_bottom + 0.5
+            )
+            no_page_decoration = (
+                not cur.header_blocks
+                and not cur.footer_blocks
+                and not cur.float_boxes
+                and not cur.textbox_boxes
+                and not prev.float_boxes
+                and not prev.textbox_boxes
+            )
+
+            if not (same_geometry and cur_is_tiny and prev_has_room
+                    and no_page_decoration
+                    and not cur.had_hard_break):
+                return result
+
+            y = prev_bottom
+            dy = y - cur_top
+            for b in cur.blocks:
+                # Lines, glyphs and table origins are already absolute at this
+                # stage, so every descendant must move with its parent block.
+                LayoutEngine._translate_block(b, 0.0, dy)
+                prev.blocks.append(b)
+            result.pop()
+        return result
+
+    def _attach_header_footer(
+        self, page: PageBox, section_page_index: int, total: int
+    ) -> None:
         import copy
         section = page.section or Section()
         px_per_pt = self.config.px_per_pt
+        self._grid_line_pitch_px = (
+            section.doc_grid_line_pitch * px_per_pt
+            if section.doc_grid_line_pitch
+            and section.doc_grid_type in ("lines", "linesAndChars")
+            else None
+        )
         page_num = page.page_number
 
         def pick(bodies: dict, refs_prefer: list) -> list:
@@ -136,7 +360,7 @@ class LayoutEngine:
                     return bodies[key]
             return bodies.get("default") or []
 
-        is_first = page_index == 0
+        is_first = section_page_index == 0
         is_even = (page_num % 2 == 0)
         if section.title_page and is_first:
             h_pref = ["first", "default"]
@@ -216,8 +440,21 @@ class LayoutEngine:
         sections = sections[: len(chunks)]
         return list(zip(sections, chunks))
 
-    def _layout_section(self, section: Section, elements: list) -> List[PageBox]:
+    def _layout_section(
+        self,
+        section: Section,
+        elements: list,
+        start_page: Optional[PageBox] = None,
+        start_y: Optional[float] = None,
+        balance: bool = False,
+    ) -> List[PageBox]:
         px_per_pt = self.config.px_per_pt
+        self._grid_line_pitch_px = (
+            section.doc_grid_line_pitch * px_per_pt
+            if section.doc_grid_line_pitch
+            and section.doc_grid_type in ("lines", "linesAndChars")
+            else None
+        )
         page_width, page_height = self._page_size(section, px_per_pt)
         margin_top = section.margin_top * px_per_pt
         margin_bottom = section.margin_bottom * px_per_pt
@@ -231,6 +468,8 @@ class LayoutEngine:
         if n_cols == 1:
             all_blocks: List[BlockBox] = []
             for element in elements:
+                if self._is_invisible_section_break(element):
+                    continue
                 if isinstance(element, Paragraph):
                     all_blocks.extend(
                         self._layout_paragraph(
@@ -250,6 +489,8 @@ class LayoutEngine:
                 margin_left,
                 margin_right,
                 section,
+                start_page=start_page,
+                start_y=start_y,
             )
 
         # Multi-column: fill column by column
@@ -264,6 +505,9 @@ class LayoutEngine:
             margin_right,
             cols,
             px_per_pt,
+            start_page=start_page,
+            start_y=start_y,
+            balance=balance,
         )
 
     def _layout_multicolumn(
@@ -278,8 +522,11 @@ class LayoutEngine:
         margin_right,
         cols,
         px_per_pt,
+        start_page: Optional[PageBox] = None,
+        start_y: Optional[float] = None,
+        balance: bool = False,
     ) -> List[PageBox]:
-        available = page_height - margin_top - margin_bottom
+        bottom_limit = page_height - margin_bottom
         pages: List[PageBox] = []
 
         def new_page() -> PageBox:
@@ -293,14 +540,30 @@ class LayoutEngine:
                 section=section,
             )
 
+        def set_seps(p: PageBox) -> None:
+            if sep and len(cols) > 1:
+                p._col_seps = [  # type: ignore[attr-defined]
+                    margin_left + cols[i][0] + cols[i][1]
+                    for i in range(len(cols) - 1)
+                ]
+
         # Pre-layout all blocks at column 0 width (equal) — use first col width
         # For unequal cols, re-layout per column when placing (simplified: use each col width)
-        page = new_page()
+        if start_page is not None:
+            page = start_page
+            col_top = start_y if start_y is not None else margin_top
+        else:
+            page = new_page()
+            col_top = margin_top
         col_idx = 0
-        cursor_y = margin_top
+        cursor_y = col_top
+        col_block_count = 0  # blocks placed in the current column
+        region_blocks: List[BlockBox] = []  # this page's column-region blocks
         sep = section.col_sep
 
         for element in elements:
+            if self._is_invisible_section_break(element):
+                continue
             col_x, col_w = cols[col_idx]
             abs_x = margin_left + col_x
 
@@ -312,20 +575,19 @@ class LayoutEngine:
                 continue
 
             for block in blocks:
-                if cursor_y - margin_top + block.height > available + 0.5 and page.blocks:
+                if cursor_y + block.height > bottom_limit + 0.5 and col_block_count:
                     col_idx += 1
-                    cursor_y = margin_top
+                    cursor_y = col_top
+                    col_block_count = 0
                     if col_idx >= len(cols):
                         # draw separators on finished page
-                        if sep:
-                            page._col_seps = [  # type: ignore[attr-defined]
-                                margin_left + cols[i][0] + cols[i][1]
-                                for i in range(len(cols) - 1)
-                            ]
+                        set_seps(page)
                         pages.append(page)
                         page = new_page()
                         col_idx = 0
+                        col_top = margin_top
                         cursor_y = margin_top
+                        region_blocks = []
                     # Re-layout block for new column width
                     col_x, col_w = cols[col_idx]
                     abs_x = margin_left + col_x
@@ -340,16 +602,66 @@ class LayoutEngine:
                 block.y = cursor_y
                 self._finalize_block_coords(block)
                 page.blocks.append(block)
+                region_blocks.append(block)
                 cursor_y += block.height
+                col_block_count += 1
+                # A hard page-break inside a paragraph also opens a new
+                # logical page even within a multi-column section.  Mark it
+                # so the merge pass leaves it alone.
+                if getattr(block.element, "page_break_marker", False):
+                    set_seps(page)
+                    pages.append(page)
+                    page = new_page()
+                    page.had_hard_break = True
+                    col_idx = 0
+                    col_top = margin_top
+                    cursor_y = margin_top
+                    col_block_count = 0
+                    region_blocks = []
+
+        if balance and len(cols) > 1 and region_blocks:
+            self._balance_columns(
+                region_blocks, cols, margin_left, col_top
+            )
 
         if page.blocks or not pages:
-            if sep and len(cols) > 1:
-                page._col_seps = [  # type: ignore[attr-defined]
-                    margin_left + cols[i][0] + cols[i][1]
-                    for i in range(len(cols) - 1)
-                ]
+            set_seps(page)
             pages.append(page)
         return pages
+
+    def _balance_columns(
+        self,
+        blocks: List[BlockBox],
+        cols,
+        margin_left: float,
+        col_top: float,
+    ) -> None:
+        """Redistribute the final column region so columns end evenly.
+
+        Word/LibreOffice balance the columns of a multi-column section that
+        flows into a following `continuous` section.  Blocks were filled
+        column-by-column; here we re-assign them (equal-width columns only)
+        so each column carries roughly total_height / n_cols.
+        """
+        widths = {round(w, 2) for _, w in cols}
+        if len(widths) > 1:
+            return  # unequal columns: keep sequential fill
+        n = len(cols)
+        total_h = sum(b.height for b in blocks)
+        target = total_h / n
+
+        col_idx = 0
+        used = 0.0
+        for block in blocks:
+            # Move to next column once the current one reached its share
+            # (never on the first block of a column, never past last column).
+            if used > 0 and used + block.height / 2 > target and col_idx < n - 1:
+                col_idx += 1
+                used = 0.0
+            new_x = margin_left + cols[col_idx][0]
+            new_y = col_top + used
+            self._translate_block(block, new_x - block.x, new_y - block.y)
+            used += block.height
 
     def _page_size(self, section: Section, px_per_pt: float) -> tuple:
         """Resolve page dimensions, handling landscape orientation."""
@@ -365,6 +677,7 @@ class LayoutEngine:
         x_offset: float,
         content_width: float,
         px_per_pt: float,
+        apply_doc_grid: bool = True,
     ) -> List[BlockBox]:
         """Layout a paragraph. May return multiple blocks if hard page breaks occur."""
         props = para.props
@@ -415,6 +728,9 @@ class LayoutEngine:
             px_per_pt,
             first_line_extra=first_line_extra,
             wrap_zones=wrap_zones,
+            grid_line_pitch_px=(
+                self._grid_line_pitch_px if apply_doc_grid else None
+            ),
         )
 
         # Prepend list label to first line
@@ -459,14 +775,65 @@ class LayoutEngine:
             else:
                 segments[-1].append(line)
 
-        blocks: List[BlockBox] = []
+        def _segment_has_ink(seg_lines: List[LineBox]) -> bool:
+            for line in seg_lines:
+                for g in line.glyphs:
+                    if g.image is not None or getattr(g, "math_box", None) is not None:
+                        return True
+                    if g.text and g.text.strip():
+                        return True
+            return False
+
+        # Empty segments only arise around manual page-break markers.  Drop them
+        # so they do not create blank pages, but preserve the break intent via
+        # page_break_after on the preceding displayed segment or by forcing the
+        # following displayed segment to start a new page.
+        first_displayed_idx: Optional[int] = None
+        kept_segments: List[Tuple[int, List[LineBox]]] = []
         for seg_idx, seg_lines in enumerate(segments):
+            if seg_lines and _segment_has_ink(seg_lines):
+                if first_displayed_idx is None:
+                    first_displayed_idx = seg_idx
+                kept_segments.append((seg_idx, seg_lines))
+            else:
+                # Empty/inkless segment after a manual break: force the previous
+                # kept block to break after itself.  If there is no previous
+                # block, the break intent is carried by the next displayed segment.
+                if kept_segments:
+                    kept_segments[-1][1].append("__page_break_after__")  # marker
+
+        # A paragraph may consist solely of anchored drawings/textboxes.  It
+        # still needs a block so _collect_floats/group_items can promote those
+        # objects to page coordinates; otherwise an inkless text line causes
+        # the entire drawing group to disappear.
+        has_anchored_content = bool(getattr(para, "group_items", None)) or any(
+            (run.image is not None and run.image.wrap_type != "inline")
+            or run.textbox is not None
+            for run in para.runs
+        )
+        if not kept_segments and has_anchored_content:
+            first_displayed_idx = 0
+            kept_segments.append((0, []))
+        has_leading_break = first_displayed_idx is not None and first_displayed_idx > 0
+
+        blocks: List[BlockBox] = []
+        for kidx, (seg_idx, seg_lines) in enumerate(kept_segments):
+            is_first_displayed = seg_idx == first_displayed_idx
+            is_last_segment = seg_idx == len(segments) - 1
+            has_break_after = "__page_break_after__" in seg_lines
+            if has_break_after:
+                seg_lines = [ln for ln in seg_lines if ln != "__page_break_after__"]
+
             block = BlockBox(element=para)
             block.x = x_offset + indent_left
             block.width = available_width
-            block.space_before = props.space_before * px_per_pt if seg_idx == 0 else 0.0
-            block.space_after = props.space_after * px_per_pt if seg_idx == len(segments) - 1 else 0.0
-            block.page_break_before = props.page_break_before if seg_idx == 0 else True
+            block.space_before = props.space_before * px_per_pt if is_first_displayed else 0.0
+            block.space_after = props.space_after * px_per_pt if is_last_segment else 0.0
+            if is_first_displayed:
+                block.page_break_before = bool(props.page_break_before) or has_leading_break
+            else:
+                block.page_break_before = True
+            block.page_break_after = has_break_after or (not is_last_segment)
 
             content_x = block.x
             for i, line in enumerate(seg_lines):
@@ -500,8 +867,54 @@ class LayoutEngine:
 
             block.lines = seg_lines
 
-            # Collect floating images / textboxes anchored to this paragraph
-            self._collect_floats(para, block, px_per_pt)
+            # Anchored objects belong to the paragraph, not to every segment
+            # produced by a manual page break. Promote them exactly once.
+            if kidx == 0:
+                self._collect_floats(para, block, px_per_pt)
+
+            # Process group_items from WordprocessingGroup (wpg:wgp).
+            if kidx == 0 and getattr(para, "group_items", None):
+                for gi in para.group_items:
+                    gi_type = gi.get("type")
+                    gi_data = gi.get("data")
+                    if gi_type == "textbox" and gi_data:
+                        tb = gi_data
+                        w = Units.emu_to_px(tb.width_emu, self.config.dpi) if tb.width_emu else 120
+                        h = Units.emu_to_px(tb.height_emu, self.config.dpi) if tb.height_emu else 60
+                        inner_blocks = []
+                        for p in tb.paragraphs:
+                            inner_blocks.extend(
+                                self._layout_paragraph(
+                                    p,
+                                    0,
+                                    max(1.0, w - 8),
+                                    px_per_pt,
+                                    apply_doc_grid=False,
+                                )
+                            )
+                        block.textbox_boxes.append({
+                            "x": tb.pos_x * px_per_pt,
+                            "y": tb.pos_y * px_per_pt,
+                            "width": w,
+                            "height": h,
+                            "blocks": inner_blocks,
+                            "wrap_type": tb.wrap_type,
+                            "fill": tb.fill,
+                            "border": tb.border_color,
+                        })
+                    elif gi_type == "line" and gi_data:
+                        block.textbox_boxes.append({
+                            "x": gi_data["x"] * px_per_pt,
+                            "y": gi_data["y"] * px_per_pt,
+                            "width": gi_data["width"] * px_per_pt,
+                            "height": max(gi_data["height"] * px_per_pt, 1.0),
+                            "blocks": [],
+                            "line_shape": {
+                                "line_width_emu": gi_data.get("line_width", 12700),
+                                "color": gi_data.get("color", (0, 0, 0)),
+                            },
+                            "wrap_type": "inFrontOf",
+                        })
 
             content_h = sum(line.height for line in seg_lines)
             if not seg_lines:
@@ -518,7 +931,14 @@ class LayoutEngine:
                     natural = float(metrics[0]) + float(metrics[1])
                 except Exception:
                     natural = mark_size * px_per_pt
-                content_h = self.line_breaker._line_height(props, natural, px_per_pt)
+                content_h = self.line_breaker._line_height(
+                    props,
+                    natural,
+                    px_per_pt,
+                    grid_line_pitch_px=(
+                        self._grid_line_pitch_px if apply_doc_grid else None
+                    ),
+                )
             block.height = content_h + block.space_before + block.space_after
             # Paragraph-relative floats that stick into/below this block reserve space
             for fb in block.float_boxes:
@@ -539,10 +959,90 @@ class LayoutEngine:
                 elif fb.wrap_type in ("square", "tight") and not seg_lines:
                     block.height = max(block.height, extent)
                 # behind: no flow impact
+            # Group items (textboxes/lines from wpg:wgp) can extend beyond the
+            # inline content area — expand block height so following paragraphs
+            # don't overlap them.
+            for tb in block.textbox_boxes:
+                gi_bottom = tb["y"] + tb["height"]
+                if gi_bottom > block.height:
+                    block.height = gi_bottom
             blocks.append(block)
 
-        return blocks if blocks else [BlockBox(element=para, height=12 * px_per_pt,
-                                               x=x_offset, width=available_width)]
+        # Paragraph consisting solely of manual page-break(s): emit a marker
+        # block so the break is not lost.  LibreOffice still gives such an
+        # empty paragraph its paragraph-mark line height — when that line does
+        # not fit on the current page, the whole (invisible) paragraph moves
+        # to the next page and the break fires from there, producing a blank
+        # page.  A zero-height marker would instead always "fit", losing that
+        # blank page (tracked-changes golden page 2).
+        if not blocks and len(segments) > 1:
+            font = self.font_manager.get_font(
+                self.config.default_font_east_asia,
+                mark_size * px_per_pt,
+                False,
+                False,
+            )
+            try:
+                metrics = font.getmetrics()
+                natural = float(metrics[0]) + float(metrics[1])
+            except Exception:
+                natural = mark_size * px_per_pt
+            mark_h = self.line_breaker._line_height(
+                props,
+                natural,
+                px_per_pt,
+                grid_line_pitch_px=(
+                    self._grid_line_pitch_px if apply_doc_grid else None
+                ),
+            )
+            block = BlockBox(
+                element=para,
+                x=x_offset + indent_left,
+                width=available_width,
+                height=mark_h,
+            )
+            block.page_break_before = bool(props.page_break_before)
+            block.page_break_after = True
+            block.space_before = 0.0
+            block.space_after = props.space_after * px_per_pt
+            block.height += block.space_after
+            blocks.append(block)
+
+        if blocks:
+            return blocks
+
+        # Ordinary empty paragraph: retain the paragraph-mark line.  LibreOffice
+        # collapses the paragraph spacing on an otherwise empty body paragraph
+        # (important for DOCX files whose defaults add 8–10pt after every
+        # paragraph), but still applies a real document grid to the mark line.
+        font = self.font_manager.get_font(
+            self.config.default_font_east_asia,
+            mark_size * px_per_pt,
+            False,
+            False,
+        )
+        try:
+            metrics = font.getmetrics()
+            natural = float(metrics[0]) + float(metrics[1])
+        except Exception:
+            natural = mark_size * px_per_pt
+        mark_h = self.line_breaker._line_height(
+            props,
+            natural,
+            px_per_pt,
+            grid_line_pitch_px=(
+                self._grid_line_pitch_px if apply_doc_grid else None
+            ),
+        )
+        return [
+            BlockBox(
+                element=para,
+                height=mark_h,
+                x=x_offset + indent_left,
+                width=available_width,
+                page_break_before=bool(props.page_break_before),
+            )
+        ]
 
     def _para_wrap_zones(self, para: Paragraph, available_width: float, px_per_pt: float):
         """Build exclusion zones for floating images anchored to this paragraph."""
@@ -604,7 +1104,15 @@ class LayoutEngine:
                 h = Units.emu_to_px(tb.height_emu, self.config.dpi) if tb.height_emu else 60
                 inner_blocks = []
                 for p in tb.paragraphs:
-                    inner_blocks.extend(self._layout_paragraph(p, 0, max(1.0, w - 8), px_per_pt))
+                    inner_blocks.extend(
+                        self._layout_paragraph(
+                            p,
+                            0,
+                            max(1.0, w - 8),
+                            px_per_pt,
+                            apply_doc_grid=False,
+                        )
+                    )
                 block.textbox_boxes.append({
                     "x": tb.pos_x * px_per_pt,
                     "y": tb.pos_y * px_per_pt,
@@ -690,8 +1198,15 @@ class LayoutEngine:
         margin_left: float,
         margin_right: float,
         section: Section,
+        start_page: Optional[PageBox] = None,
+        start_y: Optional[float] = None,
     ) -> List[PageBox]:
-        """Place blocks onto pages with absolute coordinates."""
+        """Place blocks onto pages with absolute coordinates.
+
+        When `start_page` is given (continuous section break), content keeps
+        flowing on that page starting at `start_y`; the page is returned as
+        the first element of the result.
+        """
         pages: List[PageBox] = []
         available = page_height - margin_top - margin_bottom
 
@@ -706,10 +1221,32 @@ class LayoutEngine:
                 section=section,
             )
 
-        page = new_page()
-        current_y = margin_top
+        if start_page is not None:
+            page = start_page
+            current_y = start_y if start_y is not None else margin_top
+        else:
+            page = new_page()
+            current_y = margin_top
+
+        def _apply_spacing_constraints(block: BlockBox, at_top: bool) -> None:
+            """Adjust block height for page-top space_before suppression and
+            bottom-of-page space_after truncation."""
+            # Suppress space_before at the top of a page/column.
+            if at_top and block.space_before > 0:
+                block.height -= block.space_before
+                block.space_before = 0.0
+            # Truncate trailing space_after if only the whitespace overflows.
+            if block.space_after > 0:
+                content_h = block.height - block.space_after
+                if content_h >= 0 and (current_y - margin_top + content_h) <= available + 0.5 \
+                        and (current_y - margin_top + block.height) > available + 0.5:
+                    block.height = content_h
+                    block.space_after = 0.0
 
         for i, block in enumerate(blocks):
+            at_page_top = abs(current_y - margin_top) < 0.5
+            _apply_spacing_constraints(block, at_page_top)
+
             force_break = block.page_break_before and bool(page.blocks)
 
             # Soft overflow
@@ -717,6 +1254,8 @@ class LayoutEngine:
 
             # Orphan short block: fits alone but next block would be forced to a
             # new page — keep heading/caption with its following content.
+            # Invisible (empty) neighbours never trigger this: an empty
+            # paragraph spilling over is not worth dragging real content along.
             if (
                 not force_break
                 and not overflows
@@ -724,15 +1263,18 @@ class LayoutEngine:
                 and i + 1 < len(blocks)
                 and not block.table_box
                 and block.height <= 100
+                and self._block_has_ink(block)
             ):
                 next_b = blocks[i + 1]
                 remain_after = available - (current_y - margin_top + block.height)
-                if remain_after + 0.5 < next_b.height:
+                if remain_after + 0.5 < next_b.height and self._block_has_ink(next_b):
                     force_break = True
 
             if force_break or (overflows and page.blocks):
                 pages.append(page)
                 page = new_page()
+                if force_break:
+                    page.had_hard_break = True
                 current_y = margin_top
 
             # All flow content (including empty spacers) skips past absolute
@@ -755,10 +1297,12 @@ class LayoutEngine:
                 and i + 1 < len(blocks)
                 and not block.table_box
                 and block.height <= 100
+                and self._block_has_ink(block)
             ):
                 next_b = blocks[i + 1]
                 remain_after = available - (current_y - margin_top + block.height)
-                if remain_after + 0.5 < next_b.height and (
+                if remain_after + 0.5 < next_b.height \
+                        and self._block_has_ink(next_b) and (
                     current_y - margin_top + block.height
                 ) <= available + 0.5:
                     pages.append(page)
@@ -786,6 +1330,13 @@ class LayoutEngine:
                 page.textbox_boxes.append(tb)
             page.blocks.append(block)
             current_y += block.height
+
+            # Manual page break after this block.
+            if block.page_break_after and i + 1 < len(blocks):
+                pages.append(page)
+                page = new_page()
+                page.had_hard_break = True
+                current_y = margin_top
 
         if page.blocks or not pages:
             pages.append(page)
