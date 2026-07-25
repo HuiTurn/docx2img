@@ -1,4 +1,4 @@
-"""DrawingML group parsing tests."""
+"""DrawingML group / standalone shape text parsing tests."""
 
 import xml.etree.ElementTree as ET
 
@@ -78,3 +78,65 @@ def test_parse_group_applies_child_coordinate_transform():
     assert line["y"] == pytest.approx(200 / 12700)
     assert line["width"] == pytest.approx(2000 / 12700)
     assert line["color"] == (171, 205, 239)
+
+
+def test_parse_textbox_extracts_shape_fill_and_border():
+    """Standalone DrawingML text box / autoshape must keep its fill + outline.
+
+    Word emits shape text as ``wps:wsp/wps:txbx/w:txbxContent`` wrapped in a
+    ``wps:spPr`` that carries ``a:solidFill`` (background) and ``a:ln``
+    (outline).  The group path already extracts these; the standalone path
+    must do the same so the coloured rectangle is not dropped.
+    """
+    xml = f"""
+    <w:drawing xmlns:w="{NS.W}" xmlns:r="{R_DOC}" xmlns:a="{A}"
+               xmlns:wp="{WP}" xmlns:wps="{WPS}">
+      <wp:anchor>
+        <wp:positionH relativeFrom="column"><wp:posOffset>100000</wp:posOffset></wp:positionH>
+        <wp:positionV relativeFrom="paragraph"><wp:posOffset>200000</wp:posOffset></wp:positionV>
+        <wp:extent cx="2286000" cy="1143000"/>
+        <wp:wrapNone/>
+        <a:graphic><a:graphicData
+            uri="http://schemas.microsoft.com/office/word/2010/wordprocessingShape">
+          <wps:wsp>
+            <wps:spPr>
+              <a:xfrm><a:off x="0" y="0"/><a:ext cx="2286000" cy="1143000"/></a:xfrm>
+              <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+              <a:solidFill><a:srgbClr val="FFCC00"/></a:solidFill>
+              <a:ln w="25400"><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill></a:ln>
+            </wps:spPr>
+            <wps:txbx><w:txbxContent><w:p/></w:txbxContent></wps:txbx>
+            <wps:bodyPr/>
+          </wps:wsp>
+        </a:graphicData></a:graphic>
+      </wp:anchor>
+    </w:drawing>
+    """
+    parser = DrawingParser(para_parser=lambda _elem: Paragraph())
+    tbox = parser.parse_textbox(ET.fromstring(xml))
+
+    assert tbox is not None
+    assert tbox.paragraphs == [Paragraph()]
+    assert tbox.width_emu == 2286000
+    assert tbox.height_emu == 1143000
+    # Background fill (a:solidFill) and outline (a:ln) must be preserved.
+    assert tbox.fill == (255, 204, 0)
+    assert tbox.border_color == (255, 0, 0)
+
+
+def test_parse_textbox_no_shape_props_yields_no_fill():
+    """Legacy w:txbxContent with no wps:wsp must not invent a fill."""
+    xml = f"""
+    <w:drawing xmlns:w="{NS.W}" xmlns:wp="{WP}">
+      <wp:anchor>
+        <wp:extent cx="1828800" cy="914400"/>
+        <w:txbxContent xmlns:w="{NS.W}"><w:p/></w:txbxContent>
+      </wp:anchor>
+    </w:drawing>
+    """
+    parser = DrawingParser(para_parser=lambda _elem: Paragraph())
+    tbox = parser.parse_textbox(ET.fromstring(xml))
+
+    assert tbox is not None
+    assert tbox.fill is None
+    assert tbox.border_color is None

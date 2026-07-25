@@ -664,7 +664,12 @@ class LayoutEngine:
             used += block.height
 
     def _page_size(self, section: Section, px_per_pt: float) -> tuple:
-        """Resolve page dimensions, handling landscape orientation."""
+        """Resolve page dimensions, handling landscape orientation.
+
+        Layout keeps fractional pt→px sizes. Final bitmap ceil happens in
+        ``RenderCanvas`` so Word PDF→pdftoppm page pixels match without
+        perturbing pagination.
+        """
         w = section.page_w * px_per_pt
         h = section.page_h * px_per_pt
         if section.orientation == "landscape" and w < h:

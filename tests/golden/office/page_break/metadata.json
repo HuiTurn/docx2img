@@ -1,0 +1,37 @@
+{
+  "provider": "office",
+  "case": "page_break",
+  "input_docx": "page_break.docx",
+  "input_path": "testdata/regression/office-min/page_break.docx",
+  "input_sha256": "0734f1266c87952342dbe205f7947d05e319f439be564c85b1f71e55fe22f0cc",
+  "word_version": "16.0",
+  "pdftoppm_version": "pdftoppm version 24.04.0",
+  "platform": "Windows-10-10.0.26100-SP0",
+  "python_version": "3.10.10",
+  "docx2img_version": "0.1.0",
+  "dpi": 150,
+  "color_mode": "RGB",
+  "background": [
+    255,
+    255,
+    255
+  ],
+  "generated_at": "2026-07-25T16:12:32.449040+00:00",
+  "pdf_pages": 3,
+  "page_sizes_px": [
+    [
+      1241,
+      625
+    ],
+    [
+      1241,
+      625
+    ],
+    [
+      1241,
+      625
+    ]
+  ],
+  "fonts_note": "Word used the host font environment; substitutions are not individually traced by ExportAsFixedFormat.",
+  "baseline_note": "First-introduction baseline: no global MAE/SSIM pass threshold. Subsequent slices must improve the target case without regressing existing office goldens."
+}

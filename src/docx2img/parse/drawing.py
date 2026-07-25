@@ -351,6 +351,17 @@ class DrawingParser:
                     if para:
                         paragraphs.append(para)
 
+        # Preserve the shape's background fill and outline so standalone text
+        # boxes / autoshapes are not rendered as bare text.  Word emits these
+        # on wps:wsp/wps:spPr; legacy w:txbxContent without a wps:wsp (and
+        # shapes that use a:noFill) correctly yield fill/border = None.
+        fill, border = None, None
+        wsp = drawing_el.find(f".//{{{WPS}}}wsp")
+        if wsp is not None:
+            sp_pr = wsp.find(f"{{{WPS}}}spPr")
+            if sp_pr is not None:
+                fill, border = self._shape_fill_and_border(sp_pr)
+
         return TextBoxRun(
             paragraphs=paragraphs,
             width_emu=cx,
@@ -358,6 +369,8 @@ class DrawingParser:
             pos_x=pos_x,
             pos_y=pos_y,
             wrap_type=wrap_type,
+            fill=fill,
+            border_color=border,
         )
 
     def _parse_inline(self, el) -> Optional[ImageRun]:

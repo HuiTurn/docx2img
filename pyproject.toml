@@ -18,6 +18,9 @@ dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
 ]
+office = [
+    "pywin32>=306; platform_system=='Windows'",
+]
 
 [project.scripts]
 docx2img = "docx2img.cli:main"

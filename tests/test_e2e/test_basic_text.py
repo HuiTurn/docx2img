@@ -131,3 +131,33 @@ class TestLineBreakerWrapping:
         assert len(lines) > 1
         for line in lines:
             assert line.width <= 80 + 30
+
+    def test_wrap_does_not_put_space_at_start_of_continuation(self):
+        """Word omits the inter-word space used as the soft-wrap opportunity."""
+        from docx2img.model.paragraph import Paragraph, Run, TextRun, RunProps, ParaProps
+
+        config = Config(dpi=150)
+        breaker = LineBreaker(config)
+        para = Paragraph()
+        para.props = ParaProps()
+        props = RunProps(font_size=12, font_ascii="Times New Roman")
+        para.runs.append(
+            Run(
+                text=TextRun(
+                    text=(
+                        "This is an English paragraph that should wrap correctly "
+                        "when the line becomes too long for the page width."
+                    ),
+                    props=props,
+                )
+            )
+        )
+        lines = breaker.break_paragraph(
+            para, available_width=400, px_per_pt=config.px_per_pt
+        )
+        assert len(lines) > 1
+        for i, line in enumerate(lines):
+            text = "".join(g.text or "" for g in line.glyphs)
+            if i > 0:
+                assert not text.startswith(" "), repr(text)
+            assert not text.endswith(" "), repr(text)

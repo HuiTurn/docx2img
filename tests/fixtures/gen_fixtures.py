@@ -19,8 +19,14 @@ CONTENT_TYPES = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
     ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
   <Override PartName="/word/styles.xml"
     ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
+  <Override PartName="/word/settings.xml"
+    ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/>
   <Override PartName="/word/theme/theme1.xml"
     ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>
+  <Override PartName="/docProps/core.xml"
+    ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
+  <Override PartName="/docProps/app.xml"
+    ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
 </Types>
 """
 
@@ -29,6 +35,12 @@ ROOT_RELS = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
   <Relationship Id="rId1"
     Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument"
     Target="word/document.xml"/>
+  <Relationship Id="rId2"
+    Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties"
+    Target="docProps/core.xml"/>
+  <Relationship Id="rId3"
+    Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties"
+    Target="docProps/app.xml"/>
 </Relationships>
 """
 
@@ -40,6 +52,9 @@ DOC_RELS = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
   <Relationship Id="rId2"
     Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme"
     Target="theme/theme1.xml"/>
+  <Relationship Id="rId3"
+    Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings"
+    Target="settings.xml"/>
 </Relationships>
 """
 
@@ -97,15 +112,79 @@ MINIMAL_THEME = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
     </a:clrScheme>
     <a:fontScheme name="Office">
       <a:majorFont>
-        <a:latin typeface="Calibri Light"/><a:ea typeface=""/><a:cs typeface=""/>
+        <a:latin typeface="Calibri Light"/><a:ea typeface="SimSun"/><a:cs typeface="Times New Roman"/>
       </a:majorFont>
       <a:minorFont>
-        <a:latin typeface="Calibri"/><a:ea typeface=""/><a:cs typeface=""/>
+        <a:latin typeface="Calibri"/><a:ea typeface="SimSun"/><a:cs typeface="Times New Roman"/>
       </a:minorFont>
     </a:fontScheme>
+    <a:fmtScheme name="Office">
+      <a:fillStyleLst>
+        <a:solidFill><a:schemeClr val="phClr"/></a:solidFill>
+        <a:solidFill><a:schemeClr val="phClr"><a:tint val="50000"/></a:schemeClr></a:solidFill>
+        <a:solidFill><a:schemeClr val="phClr"><a:shade val="50000"/></a:schemeClr></a:solidFill>
+      </a:fillStyleLst>
+      <a:lnStyleLst>
+        <a:ln w="9525" cap="flat" cmpd="sng" algn="ctr">
+          <a:solidFill><a:schemeClr val="phClr"/></a:solidFill>
+          <a:prstDash val="solid"/>
+        </a:ln>
+        <a:ln w="12700" cap="flat" cmpd="sng" algn="ctr">
+          <a:solidFill><a:schemeClr val="phClr"/></a:solidFill>
+          <a:prstDash val="solid"/>
+        </a:ln>
+        <a:ln w="19050" cap="flat" cmpd="sng" algn="ctr">
+          <a:solidFill><a:schemeClr val="phClr"/></a:solidFill>
+          <a:prstDash val="solid"/>
+        </a:ln>
+      </a:lnStyleLst>
+      <a:effectStyleLst>
+        <a:effectStyle><a:effectLst/></a:effectStyle>
+        <a:effectStyle><a:effectLst/></a:effectStyle>
+        <a:effectStyle><a:effectLst/></a:effectStyle>
+      </a:effectStyleLst>
+      <a:bgFillStyleLst>
+        <a:solidFill><a:schemeClr val="phClr"/></a:solidFill>
+        <a:solidFill><a:schemeClr val="phClr"><a:tint val="50000"/></a:schemeClr></a:solidFill>
+        <a:solidFill><a:schemeClr val="phClr"><a:shade val="50000"/></a:schemeClr></a:solidFill>
+      </a:bgFillStyleLst>
+    </a:fmtScheme>
   </a:themeElements>
 </a:theme>
 """
+
+MINIMAL_SETTINGS = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:zoom w:percent="100"/>
+  <w:defaultTabStop w:val="720"/>
+  <w:compat/>
+</w:settings>
+"""
+
+MINIMAL_CORE_PROPS = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties
+  xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"
+  xmlns:dc="http://purl.org/dc/elements/1.1/"
+  xmlns:dcterms="http://purl.org/dc/terms/"
+  xmlns:dcmitype="http://purl.org/dc/dcmitype/"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <dc:title>docx2img fixture</dc:title>
+  <dc:creator>docx2img</dc:creator>
+  <cp:lastModifiedBy>docx2img</cp:lastModifiedBy>
+  <dcterms:created xsi:type="dcterms:W3CDTF">2024-01-01T00:00:00Z</dcterms:created>
+  <dcterms:modified xsi:type="dcterms:W3CDTF">2024-01-01T00:00:00Z</dcterms:modified>
+</cp:coreProperties>
+"""
+
+MINIMAL_APP_PROPS = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"
+  xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">
+  <Application>docx2img</Application>
+  <Pages>1</Pages>
+  <Words>0</Words>
+</Properties>
+"""
+
 
 
 def _run(
@@ -277,9 +356,12 @@ def write_docx(
     members = {
         "[Content_Types].xml": ct,
         "_rels/.rels": ROOT_RELS,
+        "docProps/core.xml": MINIMAL_CORE_PROPS,
+        "docProps/app.xml": MINIMAL_APP_PROPS,
         "word/_rels/document.xml.rels": rels,
         "word/document.xml": document_xml,
         "word/styles.xml": styles_xml,
+        "word/settings.xml": MINIMAL_SETTINGS,
         "word/theme/theme1.xml": theme_xml,
     }
     if numbering_xml:
@@ -317,7 +399,7 @@ def make_basic_text(path: Path) -> Path:
     """English text with styles, alignment, indent, page break."""
     paras: List[str] = [
         _para(
-            _run("Hello World — Basic Text", bold=True, size_half_pt=36, color="1F4E79"),
+            _run("Hello World - Basic Text", bold=True, size_half_pt=36, color="1F4E79"),
             align="center",
             space_after=200,
         ),
@@ -370,6 +452,33 @@ def make_basic_text(path: Path) -> Path:
         _sect_pr(),
     ]
     return write_docx(path, _document("".join(paras)))
+
+
+def make_page_break(path: Path) -> Path:
+    """Break-only paragraph that overflows a full page → blank middle page.
+
+    Short page (300pt tall) filled by eight default-spaced paragraphs, then a
+    paragraph whose only content is a manual page break, then a tail paragraph.
+    Word 16.0 (ExportAsFixedFormat) renders this as three pages where the
+    middle page is blank: the break paragraph's mark line overflows page one,
+    lands alone on page two, and the break itself pushes the tail to page
+    three. Used as the ``page_break`` office golden case to quantify manual
+    page-break pagination against Word.
+    """
+    sect = (
+        "<w:sectPr>"
+        '<w:pgSz w:w="11906" w:h="6000"/>'  # 595.3pt × 300pt
+        '<w:pgMar w:top="920" w:right="1800" w:bottom="920" w:left="1800" '
+        'w:header="720" w:footer="720" w:gutter="0"/>'
+        "</w:sectPr>"
+    )
+    paras = "".join(
+        _para(_run(f"Filler {i}", size_half_pt=28), space_after=120)
+        for i in range(8)
+    )
+    paras += _para(_run("", size_half_pt=28) + _br("page"))
+    paras += _para(_run("After the page break.", size_half_pt=28))
+    return write_docx(path, _document(paras + sect))
 
 
 def make_long_wrap(path: Path) -> Path:
@@ -919,6 +1028,89 @@ def make_textbox(path: Path) -> Path:
 NS_M = "http://schemas.openxmlformats.org/officeDocument/2006/math"
 
 
+def make_shape_fill(path: Path) -> Path:
+    """Filled + outlined DrawingML text box and autoshape.
+
+    Two ``wps:wsp`` shapes inside a WordprocessingShape graphicData: an
+    autoshape (yellow fill, red outline) and a text box (blue fill, no
+    outline). Word renders the coloured backgrounds and outlines; this is the
+    ``shape_fill`` office golden case quantifying standalone-shape fill/border
+    fidelity (the standalone parse path previously dropped both).
+    """
+
+    def _shape(text, fill, border, pos_x, pos_y, cx=1828800, cy=914400):
+        c_nv_sp_pr = '<wps:cNvSpPr txBox="1"/>'
+        if fill:
+            fill_xml = f'<a:solidFill><a:srgbClr val="{fill}"/></a:solidFill>'
+        else:
+            fill_xml = "<a:noFill/>"
+        border_xml = ""
+        if border:
+            border_xml = (
+                f'<a:ln w="25400">'
+                f'<a:solidFill><a:srgbClr val="{border}"/></a:solidFill>'
+                f"</a:ln>"
+            )
+        sp_pr = (
+            "<wps:spPr>"
+            f'<a:xfrm><a:off x="0" y="0"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm>'
+            '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>'
+            f"{fill_xml}{border_xml}"
+            "</wps:spPr>"
+        )
+        style_xml = (
+            "<wps:style>"
+            '<a:lnRef idx="2"><a:schemeClr val="accent1">'
+            '<a:shade val="15000"/></a:schemeClr></a:lnRef>'
+            '<a:fillRef idx="1"><a:schemeClr val="accent1"/></a:fillRef>'
+            '<a:effectRef idx="0"><a:schemeClr val="accent1"/></a:effectRef>'
+            '<a:fontRef idx="minor"><a:schemeClr val="lt1"/></a:fontRef>'
+            "</wps:style>"
+        )
+        body = (
+            "<wps:txbx><w:txbxContent>"
+            '<w:p><w:pPr><w:jc w:val="center"/></w:pPr>'
+            f'{_run(text, bold=True, color="000000")}</w:p>'
+            "</w:txbxContent></wps:txbx>"
+            '<wps:bodyPr rot="0" vert="horz" lIns="91440" tIns="45720" '
+            'rIns="91440" bIns="45720" anchor="ctr"/>'
+        )
+        return (
+            "<w:r><w:drawing>"
+            '  <wp:anchor xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"'
+            '             xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"'
+            '             xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"'
+            '             xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape"'
+            f'            xmlns:w="{NS_W}"'
+            '            distT="0" distB="0" distL="0" distR="0" simplePos="0"'
+            '            relativeHeight="0" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1">'
+            '    <wp:simplePos x="0" y="0"/>'
+            f'    <wp:positionH relativeFrom="column"><wp:posOffset>{pos_x}</wp:posOffset></wp:positionH>'
+            f'    <wp:positionV relativeFrom="paragraph"><wp:posOffset>{pos_y}</wp:posOffset></wp:positionV>'
+            f'    <wp:extent cx="{cx}" cy="{cy}"/>'
+            '    <wp:effectExtent l="0" t="0" r="0" b="0"/>'
+            "    <wp:wrapNone/>"
+            '    <wp:docPr id="1" name="Shape"/>'
+            "    <wp:cNvGraphicFramePr/>"
+            '    <a:graphic><a:graphicData uri="http://schemas.microsoft.com/office/word/2010/wordprocessingShape">'
+            f"      <wps:wsp><wps:cNvPr id=\"1\" name=\"Shape\"/>{c_nv_sp_pr}"
+            f"{sp_pr}{style_xml}{body}</wps:wsp>"
+            "    </a:graphicData></a:graphic>"
+            "  </wp:anchor>"
+            "</w:drawing></w:r>"
+        )
+
+    shape_a = _shape("Shape A", "FFCC00", "FF0000", 0, 300000)
+    shape_b = _shape("Box B", "4472C4", None, 2400000, 300000)
+    body = (
+        _para(_run("Before shapes.", bare=True))
+        + _para(shape_a + shape_b)
+        + _para(_run("After shapes.", bare=True))
+        + _sect_pr()
+    )
+    return write_docx(path, _document(body))
+
+
 def make_math(path: Path) -> Path:
     """Inline OMML: fraction, superscript, radical, n-ary."""
     frac = (
@@ -957,6 +1149,7 @@ def make_math(path: Path) -> Path:
 if __name__ == "__main__":
     out = Path(__file__).parent
     make_basic_text(out / "basic_text.docx")
+    make_page_break(out / "page_break.docx")
     make_long_wrap(out / "long_wrap.docx")
     make_landscape(out / "landscape.docx")
     make_styled(out / "styled_text.docx")

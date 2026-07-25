@@ -501,25 +501,48 @@ class FontManager:
 
     def _resolve_path(self, name: str, bold: bool, italic: bool) -> Optional[str]:
         """Resolve a font name to a file path, preferring style variants."""
-        key = name.lower()
-        # Style-suffixed stems on Windows
+        key = name.lower().strip()
+        stem = self._windows_style_stem(key)
+        # Style-suffixed stems on Windows (e.g. times → timesbd / timesi).
         style_keys = []
-        if bold and italic:
-            style_keys = [key + "bi", key + "z", key + "bdital"]
-        elif bold:
-            style_keys = [key + "bd", key + "b", key + "bold", "msyhbd", "simhei"]
-        elif italic:
-            style_keys = [key + "i", key + "ital", key + "it"]
+        stems = [stem] if stem else []
+        if key and key not in stems:
+            stems.append(key)
 
-        # Family-specific bold files
+        def _style_variants(base: str) -> list:
+            if bold and italic:
+                return [base + "bi", base + "z", base + "bdital", base + "bold italic"]
+            if bold:
+                return [base + "bd", base + "b", base + "bold"]
+            if italic:
+                return [base + "i", base + "ital", base + "it", base + "italic"]
+            return []
+
+        for base in stems:
+            style_keys.extend(_style_variants(base))
+
+        # Family-specific bold files — CJK only. Never steal SimHei/YaHei Bold
+        # for Latin families (that bug mapped Times New Roman Bold → simhei.ttf).
         if bold:
-            if "yahei" in key or "微软雅黑" in key:
-                style_keys = ["msyhbd", "msyhbd.ttc", "microsoft yahei bold"] + style_keys
-            if "simsun" in key or "宋体" in key:
-                style_keys = ["simhei", "msyhbd"] + style_keys
+            if "yahei" in key or "微软雅黑" in key or key in ("msyh", "msyhbd", "msyhl"):
+                style_keys = [
+                    "msyhbd",
+                    "msyhbd.ttc",
+                    "microsoft yahei bold",
+                ] + style_keys
+            if (
+                "simsun" in key
+                or "宋体" in key
+                or self._looks_cjk_family(name)
+            ) and "yahei" not in key:
+                style_keys = ["simhei"] + style_keys
 
+        seen = set()
         for sk in style_keys:
-            # Do not steal YaHei Bold for unrelated families (e.g. SimHei/兰亭粗黑).
+            if not sk or sk in seen:
+                continue
+            seen.add(sk)
+            # Do not steal YaHei Bold for unrelated families.
             if sk in ("msyhbd", "msyhbd.ttc", "microsoft yahei bold") and not (
                 "yahei" in key or "微软雅黑" in key or key in ("msyh", "msyhbd", "msyhl")
             ):
@@ -529,9 +552,47 @@ class FontManager:
 
         if key in self._font_paths:
             return self._font_paths[key]
+        if stem and stem in self._font_paths:
+            return self._font_paths[stem]
         # Light variant stem
         if "light" in key and "msyhl" in self._font_paths:
             return self._font_paths["msyhl"]
+        return None
+
+    @staticmethod
+    def _windows_style_stem(key: str) -> Optional[str]:
+        """Map a family name to the Windows short style stem (timesbd, arialbd…)."""
+        if not key:
+            return None
+        mapping = {
+            "times new roman": "times",
+            "times": "times",
+            "courier new": "cour",
+            "courier": "cour",
+            "arial": "arial",
+            "georgia": "georgia",
+            "verdana": "verdana",
+            "tahoma": "tahoma",
+            "comic sans ms": "comic",
+            "trebuchet ms": "trebuc",
+            "palatino linotype": "pala",
+            "lucida console": "lucon",
+            "lucida sans unicode": "l_10646",
+            "microsoft sans serif": "micross",
+            "segoe ui": "segoeui",
+            "calibri": "calibri",
+            "cambria": "cambria",
+            "candara": "candara",
+            "consolas": "consola",
+            "constantia": "constan",
+            "corbel": "corbel",
+            "franklin gothic medium": "framd",
+        }
+        if key in mapping:
+            return mapping[key]
+        # Already a short stem like "times" / "arial".
+        if " " not in key and key.isascii():
+            return key
         return None
 
     def _default_font_paths(self, prefer_cjk: bool = False) -> list:

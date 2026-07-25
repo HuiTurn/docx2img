@@ -40,24 +40,42 @@ convert("input.docx", "output.png", dpi=150)
 python -m pytest tests/ -v
 ```
 
-The repository also includes an optional LibreOffice-based visual-regression
-workflow for complex real-world documents:
+### Visual regression providers
 
-```bash
-python scripts/run_visual_regression.py
-```
+Visual regression is provider-based. **Microsoft Word is the layout/visual
+authority for fidelity work**; LibreOffice remains an optional diagnostic aid
+and is **not** evidence of Word fidelity.
 
-Its corpus lives under `testdata/regression/` and reference pages under
-`tests/golden/libreoffice/`. Regenerate references only when intentionally
-updating the baseline:
+| Provider | Golden root | Generate | Compare |
+|----------|-------------|----------|---------|
+| `office` (Word COM → PDF → PNG) | `tests/golden/office/` | `python scripts/generate_office_golden.py` | `python scripts/run_visual_regression.py --provider office` |
+| `libreoffice` (diagnostic) | `tests/golden/libreoffice/` | `python scripts/generate_lo_golden.py` | `python scripts/run_visual_regression.py --provider libreoffice` |
 
-```bash
-python scripts/generate_lo_golden.py --force
-```
+Office corpus uses code-generated minimal fixtures under
+`testdata/regression/office-min/` (no third-party licensed DOCX required).
+Current office golden cases: `basic_text`, `page_break`, `shape_fill`. Word
+COM / Poppler `pdftoppm` are **dev-only**; `src/docx2img` must never import
+Office. First office golden introduction records baseline metrics without a
+global MAE/SSIM pass threshold; later slices must improve the target case and
+not regress existing office goldens. Paragraph `auto` line spacing follows
+Word (`natural × line/240`), not the older LibreOffice-oriented floor-only
+formula.
 
-Golden generation requires LibreOffice and Poppler's `pdftoppm`; neither is a
-runtime dependency. The external corpus and optional metric-compatible fonts
-must have their redistribution licences reviewed before publishing them.
+Manual page breaks (`w:br w:type="page"`) are parsed, but the blank
+intermediate page that a break-only paragraph produces when it overflows a
+full page is not yet reproduced. The `page_break` office case currently renders
+2/3 pages (HARD-DIFF page-count) against Word 16.0, baseline MAE ≈ 0.8 / SSIM ≈
+0.78 — reproducing Word's blank middle page is the next layout slice (see
+`docs/technical_design.md`).
+
+Standalone DrawingML text boxes and autoshapes (`wps:wsp`/`w:txbxContent`
+inside `wp:anchor`) now keep their `a:solidFill` background and `a:ln` outline
+instead of rendering as bare text: the `shape_fill` office case quantifies
+this (Word 16.0, 150 dpi) at MAE ≈ 0.8, SSIM ≈ 0.97, diff% ≈ 0.6%.
+
+LibreOffice corpus under `testdata/regression/sample-files-complex/` and
+optional metric-compatible fonts need redistribution licence review before
+publishing.
 
 ## License
 

@@ -18,6 +18,20 @@ class TestLayoutEngine:
         engine = LayoutEngine(document, config)
         assert engine is not None
 
+    def test_canvas_page_ceil_matches_word_pdf_raster(self):
+        """Final PNG size must ceil to Word PDF→pdftoppm pixels @150dpi."""
+        from src.docx2img.render.canvas import RenderCanvas
+
+        config = Config(dpi=150)
+        section = Section()
+        # Standard OOXML A4: 11906 × 16838 twips → 595.3 × 841.9 pt
+        section.page_w = 11906 / 20.0
+        section.page_h = 16838 / 20.0
+        document = DocumentModel(sections=[section])
+        pages = LayoutEngine(document, config).layout()
+        images = RenderCanvas(config).render_pages(pages)
+        assert images[0].size == (1241, 1754)
+
     def test_layout_empty_document(self):
         """Test layout with empty document"""
         config = Config()
@@ -127,26 +141,39 @@ class TestLayoutEngine:
 
     def test_page_break_paragraph_overflow_makes_blank_page(self):
         """When the break-only paragraph does not fit on the current page it
-        moves to the next (blank) page and breaks from there → 3 pages."""
+        moves to the next (blank) page and breaks from there → 3 pages.
+
+        Verified against Word 16.0 (ExportAsFixedFormat → PDF): a manual page
+        break paragraph that overflows an already-full page produces a *blank*
+        intermediate page before the tail (see the ``page_break`` office golden
+        fixture). Geometry here is made deterministic with ``exact`` line
+        spacing so the calibration does not depend on font metrics or the
+        auto line-height formula: 10 fillers × 20pt exactly fill the 200pt of
+        usable height, leaving no room for the 12.48pt break-mark line.
+        """
         from src.docx2img.model.paragraph import BreakRun
 
         config = Config()
         section = Section()
         section.page_w = 595.0
-        section.page_h = 300.0  # small page: ~208pt content height
-        section.margin_top = 46.0
-        section.margin_bottom = 46.0
+        section.page_h = 300.0
+        section.margin_top = 50.0
+        section.margin_bottom = 50.0  # usable height = 200pt
 
         document = DocumentModel()
-        # Fill page 1 nearly to the bottom
+        # 10 fillers × 20pt (exact) == 200pt → page 1 is filled to the edge.
         for i in range(10):
             para = Paragraph()
-            para.props = ParaProps(space_after=6.0)
+            para.props = ParaProps(
+                line_spacing_exact=20.0,
+                line_spacing_rule="exact",
+                space_after=0.0,
+            )
             rp = RunProps()
             rp.font_size = 14.0
             para.runs.append(Run(text=TextRun(text=f"Filler {i}", props=rp)))
             document.body.append(para)
-        # Break-only paragraph
+        # Break-only paragraph: its mark line (>5pt) cannot fit on page 1.
         brk_para = Paragraph()
         brk_para.props = ParaProps()
         brk_para.runs.append(Run(brk=BreakRun(break_type="page")))
@@ -162,14 +189,21 @@ class TestLayoutEngine:
 
         engine = LayoutEngine(document, config)
         pages = engine.layout()
-        # Page 1: filler; page 2: invisible break para (blank); page 3: tail
+
+        def _page_text(page):
+            return [
+                g.text
+                for b in page.blocks
+                for ln in b.lines
+                for g in ln.glyphs
+                if g.text and g.text.strip()
+            ]
+
+        # Page 1: 10 fillers; page 2: invisible break para (blank); page 3: tail
         assert len(pages) == 3
-        assert not any(
-            g.text.strip() if g.text else False
-            for b in pages[1].blocks
-            for ln in b.lines
-            for g in ln.glyphs
-        )
+        assert _page_text(pages[0]), "page 1 should be full of filler text"
+        assert not _page_text(pages[1]), "page 2 must be blank (break mark only)"
+        assert "After" in _page_text(pages[2])
 
     def test_float_only_paragraph_keeps_anchor_block(self):
         """An inkless paragraph must not discard its anchored drawing."""
@@ -568,16 +602,15 @@ class TestPageStamping:
 
 
 class TestLineHeightFormula:
-    """Verify _line_height auto-spacing matches LibreOffice behaviour.
+    """Verify _line_height auto-spacing matches Word behaviour.
 
-    LibreOffice applies the ``auto`` multiplier only to the font-size-based
-    minimum, NOT to the font-metric natural height:
+    OOXML ``auto`` multiplies the single-line calculation by ``line/240``.
+    Word scales the content natural height:
 
-        max(natural_height, font_size * mult)
+        max(natural_height * mult, mark_font_size * px_per_pt * mult)
 
-    The old formula (max(natural*mult, fs*mult)) over-inflated when
-    mult > 1.0, causing large-document to render 52 pages instead of
-    LO's 50.
+    LibreOffice used ``max(natural, font_size * mult)`` (no natural inflation);
+    that under-spaces Word-authoritative goldens.
     """
 
     def setup_method(self):
@@ -592,43 +625,41 @@ class TestLineHeightFormula:
         return p
 
     def test_auto_single_spacing(self):
-        """mult=1.0 → max(natural, word_single)"""
+        """mult=1.0 → max(natural, mark_floor)"""
         px = 150 / 72
         props = self._props(line_spacing=1.0, line_spacing_rule="auto",
                             mark_font_size=11)
         result = self.lb._line_height(props, natural_height=12.0, px_per_pt=px)
-        expected = max(12.0, 11.0 * px)
+        expected = max(12.0 * 1.0, 11.0 * px * 1.0)
         assert abs(result - expected) < 0.5
 
-    def test_auto_115_mult_no_natural_inflation(self):
-        """mult=1.15: natural_height is NOT multiplied.
-
-        When natural_height > word_single (possible with fonts whose metric
-        height exceeds the nominal size), the old formula would inflate
-        natural by mult too, producing a larger result than Formula A.
-        """
+    def test_auto_115_scales_ascent_descent_not_linegap(self):
+        """mult scales ascent+descent natural; callers must omit hhea lineGap."""
         px = 150 / 72
-        # Use a case where natural > fs*px so the formulas diverge
         props = self._props(line_spacing=1.15, line_spacing_rule="auto",
                             mark_font_size=10)
-        natural = 20.0  # larger than word_single = 10*px ≈ 20.8... hmm
-        # Let's use values where natural > word_single clearly
-        natural = 25.0
+        # Simulated ascent+descent only (29px), not ascent+descent+gap.
+        natural = 29.0
         result = self.lb._line_height(props, natural_height=natural, px_per_pt=px)
-        # Formula A: max(25.0, 10*px*1.15) = max(25, 23.96) = 25.0
-        expected = max(natural, 10.0 * px * 1.15)
+        expected = max(natural * 1.15, 10.0 * px * 1.15)
         assert abs(result - expected) < 0.5
-        # Old formula: max(25*1.15, 10*px*1.15) = max(28.75, 23.96) = 28.75
-        old_wrong = max(natural * 1.15, 10.0 * px * 1.15)
-        assert abs(result - old_wrong) > 1.0  # prove we changed the formula
+        # Including a ~1px lineGap in natural would overshoot Word.
+        with_gap = self.lb._line_height(props, natural_height=30.0, px_per_pt=px)
+        assert with_gap > result
 
-    def test_auto_large_natural_wins(self):
-        """When natural > fs*mult, natural wins (no inflation)."""
+
+    def test_auto_large_natural_is_scaled(self):
+        """When natural dominates the mark floor, mult still scales it."""
         px = 150 / 72
         props = self._props(line_spacing=1.0, line_spacing_rule="auto",
                             mark_font_size=10)
         result = self.lb._line_height(props, natural_height=25.0, px_per_pt=px)
-        assert result == 25.0  # natural dominates
+        assert result == 25.0  # mult=1.0 → natural unchanged
+
+        props15 = self._props(line_spacing=1.5, line_spacing_rule="auto",
+                              mark_font_size=10)
+        result15 = self.lb._line_height(props15, natural_height=25.0, px_per_pt=px)
+        assert abs(result15 - 25.0 * 1.5) < 0.5
 
     def test_exact_spacing_unchanged(self):
         """exact rule uses absolute value, unaffected by formula change."""

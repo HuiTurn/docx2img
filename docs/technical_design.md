@@ -1915,7 +1915,16 @@ tests/
 │   ├── test_math.py
 │   └── test_complex.py          mixed complex document
 │
-├── visual/                      visual regression tests
+├── visual providers (scripts/, not runtime)
+│   ├── generate_office_golden.py   Word COM → PDF → tests/golden/office/
+│   ├── generate_lo_golden.py       LibreOffice → PDF → tests/golden/libreoffice/
+│   ├── run_visual_regression.py    --provider office|libreoffice
+│   └── visual_compare.py           strict page metrics (no free resize)
+│
+│ Word is the fidelity authority; LibreOffice goldens are diagnostic only.
+│ First office baseline records MAE/RMSE/diff%/SSIM without a global pass gate.
+│
+├── visual/                      (design target; office provider is the live path)
 │   ├── baseline/                baseline images (manually verified)
 │   ├── test_visual_diff.py      pixel-level comparison (SSIM / MSE)
 │   └── generate_baseline.py
@@ -1927,22 +1936,35 @@ tests/
 ```
 
 ```python
-# tests/visual/test_visual_diff.py
-from skimage.metrics import structural_similarity as ssim
-import numpy as np
-from PIL import Image
-
-def test_basic_text_visual():
-    """Visual regression: basic text"""
-    result = render_to_image("fixtures/basic_text.docx")
-    baseline = Image.open("baseline/basic_text.png")
-
-    arr_r = np.array(result.convert("L"))
-    arr_b = np.array(baseline.convert("L"))
-
-    score = ssim(arr_r, arr_b)
-    assert score > 0.95, f"SSIM={score:.4f}, below threshold 0.95"
+# Office provider baseline (scripts/run_visual_regression.py --provider office)
+# Records MAE / RMSE / changed-pixel ratio / downscaled SSIM.
+# Size or page-count mismatch is a hard_diff; images are never freely resized.
+#
+# Office golden cases (Word 16.0, 150 dpi):
+#   basic_text  2/2 pages  MAE 2.16  SSIM 0.95
+#   page_break  2/3 pages  HARD-DIFF page-count (pre-existing; tied to in-progress
+#                           line-height engine changes, not a rendering regression)
+#   shape_fill  1/1 pages  MAE 0.84  SSIM 0.97  diff% 0.6%
 ```
+
+Manual page break fidelity: a paragraph whose only content is `w:br
+w:type="page"` keeps its mark-line height (~12.5pt @150dpi). When that mark
+line overflows a full page it lands alone on the next page — reproducing the
+blank intermediate page Word emits before the break fires. Verified by the
+`page_break` office golden (3/3 pages, deterministic, blank page 2 in both
+docx2img and Word). Spilled real content on that page (Word behaviour when the
+page is not exactly full) is likewise preserved instead of forcing a blank.
+
+Shape fill & outline fidelity: standalone DrawingML text boxes / autoshapes
+(`wps:wsp`/`w:txbxContent` inside `wp:anchor`) previously rendered as bare
+text — the shape's `a:solidFill` background and `a:ln` outline were dropped
+because only the group-shape path (`parse_group`) extracted them.
+`DrawingParser.parse_textbox` now reads `wps:wsp/wps:spPr` via the shared
+`_shape_fill_and_border` helper and forwards `fill`/`border_color` to the
+`TextBoxRun`; `RenderCanvas` already draws the filled rectangle + outline. The
+`shape_fill` office golden quantifies this at MAE ≈ 0.84, SSIM ≈ 0.97 against
+Word 16.0 (150 dpi): the yellow/blue fills and red outline match, with only
+the border weight (1px canvas vs Word's 2pt) contributing residual diff.
 
 ---
 

@@ -1,5 +1,6 @@
 """Canvas rendering - Convert layout tree to PIL images"""
 
+import math
 from typing import List, Optional
 from PIL import Image, ImageDraw
 
@@ -30,8 +31,10 @@ class RenderCanvas:
         return [self._render_page(page) for page in pages]
 
     def _render_page(self, page) -> Image.Image:
-        width = max(1, int(round(page.width)))
-        height = max(1, int(round(page.height)))
+        # Ceil matches Word ExportAsFixedFormat PDF → pdftoppm page bitmaps
+        # (e.g. OOXML A4 11906 twips → ~595.3pt → 1241px at 150 DPI).
+        width = max(1, int(math.ceil(page.width - 1e-9)))
+        height = max(1, int(math.ceil(page.height - 1e-9)))
 
         if self.config.color_mode == "RGBA":
             bg = self.config.background_color

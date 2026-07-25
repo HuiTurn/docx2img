@@ -244,14 +244,21 @@ class LineBreaker:
                     if break_at is not None and break_at > 0:
                         keep = current_units[:break_at]
                         rest = current_units[break_at:]
-                        current_units = keep
-                        flush_line()
-                        current_units = rest
-                        current_width = sum(u["width"] for u in current_units)
-                        continue
-                    else:
-                        flush_line()
-                        continue
+                        # Word discards the inter-word space used as the wrap
+                        # opportunity: it must not start the next line, and a
+                        # trailing wrap space on the previous line is omitted.
+                        while keep and keep[-1].get("text") == " ":
+                            keep.pop()
+                        while rest and rest[0].get("text") == " ":
+                            rest.pop(0)
+                        if keep:
+                            current_units = keep
+                            flush_line()
+                            current_units = rest
+                            current_width = sum(u["width"] for u in current_units)
+                            continue
+                    flush_line()
+                    continue
 
             # Avoid ending line with NO_END when next unit would wrap
             current_units.append(unit)
@@ -461,12 +468,15 @@ class LineBreaker:
             # Can curr start a line?
             if not self.can_break_before(curr_ch):
                 continue
-            # Prefer break after whitespace or CJK or hyphen
+            # Prefer break after whitespace / hyphen / CJK.  If ``curr`` itself
+            # is a space unit, break *after* it so the next line does not start
+            # with that wrap space (Word omits the break space).
+            if curr["text"] == " ":
+                return i + 1 if i + 1 < len(current_units) else i
             if (
                 prev["text"].endswith(" ")
                 or prev["text"].endswith("-")
                 or self.is_cjk(prev_ch)
-                or curr["text"].startswith(" ")
             ):
                 return i
 
@@ -474,6 +484,8 @@ class LineBreaker:
         if len(current_units) > 1:
             last = current_units[-1]
             prev = current_units[-2]
+            if last.get("text") == " ":
+                return len(current_units)
             if self.can_break_after(prev["text"][-1:] if prev["text"] else "") and self.can_break_before(
                 last["text"][:1] if last["text"] else ""
             ):
@@ -496,7 +508,6 @@ class LineBreaker:
         max_ascent = 0.0
         max_descent = 0.0
         max_height = 0.0
-        max_line_gap = 0.0
         has_text = False
 
         for unit in units:
@@ -563,6 +574,10 @@ class LineBreaker:
                     props.underline = False
                     props.color = (0, 0, 0)
 
+            # PIL getmetrics() provides ascent/descent used as Word's auto
+            # single-line base. hhea lineGap is intentionally omitted: folding
+            # it into natural and then multiplying by w:line/240 overshoots
+            # Word PDF goldens.
             ascent = h * 0.8
             descent = h * 0.2
             if font and hasattr(font, "getmetrics"):
@@ -572,29 +587,6 @@ class LineBreaker:
                     descent = float(metrics[1])
                 except Exception:
                     pass
-
-            # LibreOffice (and Word) include the font's typographic line gap
-            # in the natural line height for auto line spacing.  PIL's
-            # getmetrics() only reports ascent+descent, so we look up the hhea
-            # lineGap explicitly and add it to the line's natural height.
-            line_gap = 0.0
-            if props is not None and self.font_manager is not None:
-                size_pt = props.font_size or 12.0
-                if props.vertical_align in ("superscript", "subscript"):
-                    size_pt *= 0.65
-                name = (
-                    props.font_ascii
-                    or props.font_h_ansi
-                    or props.font_east_asia
-                    or self.config.default_font_ascii
-                )
-                if name:
-                    try:
-                        _, _, line_gap = self.font_manager.get_font_metrics(
-                            name, size_pt * px_per_pt, bool(props.bold), bool(props.italic)
-                        )
-                    except Exception:
-                        line_gap = 0.0
 
             glyph = GlyphBox(
                 text=text,
@@ -610,7 +602,6 @@ class LineBreaker:
             max_ascent = max(max_ascent, ascent)
             max_descent = max(max_descent, descent)
             max_height = max(max_height, h)
-            max_line_gap = max(max_line_gap, line_gap)
 
         line.width = x
         image_only = not has_text and any(g.image is not None for g in line.glyphs)
@@ -624,11 +615,8 @@ class LineBreaker:
         else:
             line.ascent = max_ascent or max_height * 0.8
             line.descent = max_descent or max_height * 0.2
-            # Add the font's typographic line gap to the natural line height.
-            # LibreOffice includes this leading in the line box for auto line
-            # spacing, which is why dense text documents match golden better
-            # with the gap included than with PIL's ascent+descent alone.
-            natural = line.ascent + line.descent + max_line_gap
+            # Word auto single-line base = ascent+descent (no hhea lineGap).
+            natural = line.ascent + line.descent
 
         # Line height from paragraph spacing rules
         line.height = self._line_height(
@@ -650,15 +638,18 @@ class LineBreaker:
     ) -> float:
         """Compute line box height from paragraph spacing.
 
-        LibreOffice (our golden reference) interprets ``auto`` line spacing as
-        a direct multiple of the reference font size.  Single spacing equals
-        the font size, so ``w:line=276`` (1.15) yields ``1.15 × font_size``.
-        Word adds extra built-in leading (~1.18 × font_size for single), but
-        we deliberately follow LibreOffice here to match the visual-regression
-        golden references.
+        For ``auto`` (OOXML ``w:lineRule="auto"``), ``w:line`` is in 240ths of
+        a single line. Word scales the single-line glyph metrics
+        (ascent+descent) by ``line/240``, with a paragraph-mark font-size floor:
 
-        ``exact`` and ``atLeast`` are absolute values in points.  A line that
-        contains only an inline image uses the image height directly.
+            max(natural_height * mult, mark_font_size * px_per_pt * mult)
+
+        ``natural_height`` must be ascent+descent only — not hhea lineGap.
+        Multiplying lineGap was an LO-oriented choice that overshoots Word.
+
+        ``exact`` / ``atLeast`` remain absolute point values. Image-only lines
+        under ``auto`` keep the image height (Word does not apply the
+        paragraph multiplier to an image-only line box).
         """
         rule = getattr(para_props, "line_spacing_rule", "auto") or "auto"
         if image_only and rule == "auto":
@@ -669,24 +660,10 @@ class LineBreaker:
             resolved = max(natural_height, para_props.line_spacing_exact * px_per_pt)
         else:
             # auto: multiplier (default 1.0 → single spacing)
-            #
-            # LibreOffice applies ``mult`` only to the font-size-based minimum,
-            # not to the font-metric natural height.  This means:
-            #   max(natural_height, font_size * mult)
-            # NOT:
-            #   max(natural_height * mult, font_size * mult)
-            # The former matches LO's golden-reference output; the latter
-            # over-inflates line height when mult > 1.0 (e.g. docDefaults
-            # line=276 → 1.15x caused large-document to render 52 pages
-            # instead of LO's 50).
             mult = para_props.line_spacing if para_props.line_spacing else 1.0
-            # Use the paragraph-mark font size as the reference for leading.
             ref_font_size = getattr(para_props, "mark_font_size", None) or 12.0
-            word_single = ref_font_size * px_per_pt
-            if mult <= 1.0 + 1e-6:
-                resolved = max(natural_height, word_single)
-            else:
-                resolved = max(natural_height, word_single * mult)
+            mark_floor = ref_font_size * px_per_pt * mult
+            resolved = max(natural_height * mult, mark_floor)
 
         # A section document grid fixes baselines at linePitch intervals.
         # Snap the resolved line box upward to a whole grid interval; a
