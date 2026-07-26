@@ -1,6 +1,7 @@
 """Layout engine - Converts IR to layout tree with pages"""
 
 import logging
+from copy import copy
 from dataclasses import dataclass, field
 from typing import List, Any, Optional, Tuple, Dict
 
@@ -84,6 +85,7 @@ class PageBox:
     )
     footnote_continuation: bool = False
     footnote_multiple: bool = False
+    footnote_block_overrides: List[BlockBox] = field(default_factory=list)
     endnote_blocks: List[BlockBox] = field(default_factory=list)
     endnote_separator: Optional[Tuple[float, float, float, int]] = None
     endnote_paragraph_overrides: List[Paragraph] = field(default_factory=list)
@@ -267,39 +269,45 @@ class LayoutEngine:
                     seen.add(note_id)
                     note_ids.append(note_id)
 
-            if not note_ids:
+            if not note_ids and not page.footnote_block_overrides:
                 continue
 
             content_width = page.width - page.margin_left - page.margin_right
-            note_blocks: List[BlockBox] = []
-            note_block_groups: List[Tuple[int, List[BlockBox]]] = []
-            for note_id in note_ids:
-                definition = self.document.footnotes.get(note_id, [])
-                paragraph_indexes = {
-                    id(paragraph): index
-                    for index, paragraph in enumerate(definition)
-                }
-                if page.footnote_paragraph_overrides:
-                    paragraphs = page.footnote_paragraph_overrides.get(
-                        note_id, []
-                    )
-                else:
-                    paragraphs = definition
-                for paragraph in paragraphs:
-                    blocks = self._layout_paragraph(
-                        paragraph,
-                        page.margin_left,
-                        content_width,
-                        px_per_pt,
-                        apply_doc_grid=False,
-                    )
-                    note_blocks.extend(blocks)
-                    note_block_groups.append(
-                        (
-                            paragraph_indexes.get(id(paragraph), -1),
-                            blocks,
+            if page.footnote_block_overrides:
+                note_blocks = page.footnote_block_overrides
+                note_block_groups = [
+                    (-1, [block]) for block in note_blocks
+                ]
+            else:
+                note_blocks: List[BlockBox] = []
+                note_block_groups: List[Tuple[int, List[BlockBox]]] = []
+                for note_id in note_ids:
+                    definition = self.document.footnotes.get(note_id, [])
+                    paragraph_indexes = {
+                        id(paragraph): index
+                        for index, paragraph in enumerate(definition)
+                    }
+                    if page.footnote_paragraph_overrides:
+                        paragraphs = page.footnote_paragraph_overrides.get(
+                            note_id, []
                         )
-                    )
+                    else:
+                        paragraphs = definition
+                    for paragraph in paragraphs:
+                        blocks = self._layout_paragraph(
+                            paragraph,
+                            page.margin_left,
+                            content_width,
+                            px_per_pt,
+                            apply_doc_grid=False,
+                        )
+                        note_blocks.extend(blocks)
+                        note_block_groups.append(
+                            (
+                                paragraph_indexes.get(id(paragraph), -1),
+                                blocks,
+                            )
+                        )
 
             if not note_blocks:
                 continue
@@ -323,7 +331,11 @@ class LayoutEngine:
                 1.0 * px_per_pt
                 if len(note_ids) > 1
                 else (
-                    note_bottom_offset
+                    (
+                        1.5 * px_per_pt
+                        if page.footnote_block_overrides
+                        else note_bottom_offset
+                    )
                     if len(note_block_groups) == 1
                     else 0.0
                 )
@@ -404,6 +416,7 @@ class LayoutEngine:
 
             content_width = page.width - page.margin_left - page.margin_right
             measured = []
+            line_candidates = {}
             for note_id in note_ids:
                 for paragraph_index, paragraph in enumerate(
                     self.document.footnotes.get(note_id, [])
@@ -415,6 +428,7 @@ class LayoutEngine:
                         px_per_pt,
                         apply_doc_grid=False,
                     )
+                    line_candidates[(note_id, paragraph_index)] = blocks
                     measured.append(
                         (
                             note_id,
@@ -471,6 +485,124 @@ class LayoutEngine:
                 height > full_page_capacity + 0.5
                 for _, _, _, height in measured
             ):
+                if len(measured) == 1:
+                    note_id, paragraph_index, paragraph, _ = measured[0]
+                    blocks = line_candidates[(note_id, paragraph_index)]
+                    explicit_breaks = sum(
+                        1
+                        for run in paragraph.runs
+                        if run.brk is not None
+                        and run.brk.break_type in ("line", "textWrapping")
+                    )
+                    source = blocks[0] if len(blocks) == 1 else None
+                    can_split_lines = (
+                        source is not None
+                        and len(source.lines) > 1
+                        and explicit_breaks == len(source.lines) - 1
+                        and not source.float_boxes
+                        and not source.textbox_boxes
+                        and source.table_box is None
+                        and all(
+                            line.height <= full_page_capacity + 0.5
+                            for line in source.lines
+                        )
+                    )
+                    if can_split_lines:
+                        line_gap = 1.5 * px_per_pt
+
+                        def take_lines(lines, capacity):
+                            chunk = []
+                            used = 0.0
+                            while lines:
+                                required = lines[0].height + (
+                                    line_gap if chunk else 0.0
+                                )
+                                if used + required > capacity + 0.5:
+                                    break
+                                chunk.append(lines[0])
+                                used += required
+                                lines = lines[1:]
+                            return chunk, lines
+
+                        def make_block(
+                            lines, include_before=False, include_after=False
+                        ):
+                            copied_lines = []
+                            for line in lines:
+                                copied_line = copy(line)
+                                copied_line.glyphs = [
+                                    copy(glyph) for glyph in line.glyphs
+                                ]
+                                for glyph in copied_line.glyphs:
+                                    glyph.x -= line.x
+                                copied_lines.append(copied_line)
+                            regular_line_height = min(
+                                line.height for line in copied_lines
+                            )
+                            for line in copied_lines[:-1]:
+                                line.height = regular_line_height + line_gap
+                            space_before = (
+                                source.space_before if include_before else 0.0
+                            )
+                            space_after = (
+                                source.space_after if include_after else 0.0
+                            )
+                            return BlockBox(
+                                lines=copied_lines,
+                                x=source.x,
+                                width=source.width,
+                                height=(
+                                    sum(
+                                        line.height
+                                        for line in copied_lines
+                                    )
+                                    + space_before
+                                    + space_after
+                                ),
+                                element=paragraph,
+                                space_before=space_before,
+                                space_after=space_after,
+                            )
+
+                        first_lines, remaining_lines = take_lines(
+                            source.lines, first_capacity
+                        )
+                        if first_lines:
+                            page.footnote_block_overrides = [
+                                make_block(
+                                    first_lines, include_before=True
+                                )
+                            ]
+                            insert_at = page_index + 1
+                            while remaining_lines:
+                                chunk, remaining_after = take_lines(
+                                    remaining_lines, full_page_capacity
+                                )
+                                if not chunk:
+                                    break
+                                continuation = PageBox(
+                                    width=page.width,
+                                    height=page.height,
+                                    margin_top=page.margin_top,
+                                    margin_bottom=page.margin_bottom,
+                                    margin_left=page.margin_left,
+                                    margin_right=page.margin_right,
+                                    section=page.section,
+                                    footnote_continuation=True,
+                                    footnote_block_overrides=[
+                                        make_block(
+                                            chunk,
+                                            include_after=not remaining_after,
+                                        )
+                                    ],
+                                )
+                                pages.insert(insert_at, continuation)
+                                insert_at += 1
+                                remaining_lines = remaining_after
+                            if not remaining_lines:
+                                changed = True
+                                page_index = insert_at
+                                continue
                 logger.warning(
                     "footnote_continuation_unresolved: page %s has a "
                     "footnote paragraph taller than one page",

@@ -10,9 +10,9 @@ Used exclusively by the **office** (Microsoft Word) golden provider:
 
 Cases are `basic_text`, `date_field`, `drawingml_text`, `endnote`,
 `endnote_continuation`, `footnote`, `footnote_continuation`,
-`footnote_multiple_continuation`, `footnote_reflow`, `math_accent`,
-`math_bar`, `math_border_box`, `math_eq_arr`, `math_limit`, `page_break`,
-and `shape_fill`.
+`footnote_line_continuation`, `footnote_multiple_continuation`,
+`footnote_reflow`, `math_accent`, `math_bar`, `math_border_box`,
+`math_eq_arr`, `math_limit`, `page_break`, and `shape_fill`.
 `date_field.docx` has a stale cached DATE
 result so Word's
 read-only field update and the renderer's fixed `reference_datetime` can be
@@ -29,6 +29,9 @@ definition in `word/footnotes.xml`.
 forcing Word to reserve note height and move that paragraph to page two.
 `footnote_continuation.docx` isolates one 18-paragraph footnote that Word
 continues onto a second short page.
+`footnote_line_continuation.docx` isolates one footnote paragraph containing
+18 lines separated by explicit `w:br` elements that Word continues onto a
+second short page.
 `footnote_multiple_continuation.docx` combines a five-paragraph and a
 thirteen-paragraph footnote referenced on the same short page.
 `math_accent.docx` isolates a centered OMML `m:acc` with an explicit tilde.
