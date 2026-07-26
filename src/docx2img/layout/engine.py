@@ -385,7 +385,7 @@ class LayoutEngine:
             )
 
     def _paginate_oversized_footnotes(self, pages: List[PageBox]) -> bool:
-        """Split one or more multi-paragraph footnotes across pages."""
+        """Split supported oversized footnote content across pages."""
         changed = False
         px_per_pt = self.config.px_per_pt
         separator_gap = 7.5 * px_per_pt
@@ -495,10 +495,27 @@ class LayoutEngine:
                         and run.brk.break_type in ("line", "textWrapping")
                     )
                     source = blocks[0] if len(blocks) == 1 else None
+                    automatic_wrap = (
+                        explicit_breaks == 0
+                        and all(run.brk is None for run in paragraph.runs)
+                    )
+                    simple_inline_content = (
+                        not paragraph.group_items
+                        and all(
+                            run.image is None
+                            and run.math is None
+                            and run.textbox is None
+                            for run in paragraph.runs
+                        )
+                    )
                     can_split_lines = (
                         source is not None
                         and len(source.lines) > 1
-                        and explicit_breaks == len(source.lines) - 1
+                        and (
+                            explicit_breaks == len(source.lines) - 1
+                            or automatic_wrap
+                        )
+                        and simple_inline_content
                         and not source.float_boxes
                         and not source.textbox_boxes
                         and source.table_box is None

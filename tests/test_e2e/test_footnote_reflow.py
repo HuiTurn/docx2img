@@ -1,5 +1,6 @@
 """Footnote reservation keeps near-full body flow clear of page-bottom notes."""
 
+from copy import deepcopy
 import logging
 
 from docx2img import Config, convert_to_images
@@ -43,13 +44,14 @@ def test_footnote_reflow_render_is_deterministic(tmp_path):
     assert all(a.tobytes() == b.tobytes() for a, b in zip(first, second))
 
 
-def test_unmovable_oversized_footnote_keeps_visible_warnings(tmp_path, caplog):
+def test_mixed_oversized_footnote_keeps_visible_warnings(tmp_path, caplog):
     docx = make_footnote(tmp_path / "footnote.docx")
     config = Config(dpi=96)
     model = DocumentParser(Unpacker(docx).unpack(), config).parse()
     for run in model.footnotes["1"][0].runs:
         if run.text is not None and run.footnote_id is None:
             run.text.text = "oversized footnote text " * 1000
+    model.footnotes["1"].append(deepcopy(model.footnotes["1"][0]))
     with caplog.at_level(logging.WARNING):
         pages = LayoutEngine(model, config).layout()
     assert pages[0].footnote_blocks

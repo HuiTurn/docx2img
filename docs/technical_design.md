@@ -1951,6 +1951,7 @@ tests/
 #   footnote_line_continuation  2/2 pages  MAE 2.240  SSIM 0.925497  diff% 1.154%
 #   footnote_multiple_continuation  2/2 pages  MAE 2.532  SSIM 0.937488  diff% 1.312%
 #   footnote_reflow  2/2 pages  MAE 0.870  SSIM 0.925701  diff% 0.443%
+#   footnote_wrap_continuation  2/2 pages  MAE 8.830  SSIM 0.900397  diff% 4.634%
 #   math_accent  1/1 page  MAE 0.010  SSIM 0.999180  diff% ~0.006%
 #   math_bar  1/1 page  MAE 0.013  SSIM 0.998945  diff% ~0.006%
 #   math_border_box  1/1 page  MAE 0.013  SSIM 0.997239  diff% ~0.007%
@@ -2040,16 +2041,17 @@ byte-deterministic, and measures mean MAE 2.532, RMSE 23.560, changed pixels
 1.312%, SSIM 0.937488 at 150 dpi.
 
 The single-paragraph continuation path is deliberately narrower. It is enabled
-only when one oversized note paragraph lays out as one block, contains no
-table, float or text box, and has exactly one explicit `w:br` /
-`textWrapping` break between each adjacent laid line. The pass packs copied
-line boxes into the first and full-page capacities, normalizes their glyph
-coordinates back to line-relative values before final placement, and uses the
-regular line height so the superscript marker does not enlarge the first line
-advance. The first chunk retains paragraph-before spacing, the final chunk
-retains paragraph-after spacing, and continuation pages use the full-width
-separator. Automatically wrapped lines do not enter this path and continue to
-log `footnote_continuation_unresolved`.
+only when one oversized note paragraph lays out as one simple inline block
+without a table, float, text box, inline image/math, or grouped drawing
+content. An explicit-break paragraph must have exactly one `w:br` /
+`textWrapping` break between each adjacent laid line. A paragraph with no
+break runs may use the line boxes produced by automatic wrapping. The pass
+packs copied line boxes into the first and full-page capacities, normalizes
+their glyph coordinates back to line-relative values before final placement,
+and uses the regular line height so the superscript marker does not enlarge
+the first line advance. The first chunk retains paragraph-before spacing, the
+final chunk retains paragraph-after spacing, and continuation pages use the
+full-width separator.
 
 The code-generated `footnote_line_continuation.docx` contains one 18-line
 paragraph separated by 17 explicit breaks. Unmodified `a5dc303` renders 1 page
@@ -2060,6 +2062,17 @@ The bounded line split produces Word's exact 2/2 pages at 1241x625, is
 byte-deterministic, and measures mean MAE 2.240, RMSE 22.212, changed pixels
 1.154%, SSIM 0.925497 at 150 dpi without those warnings. Definition tables,
 custom numbering, and custom separator content are not claimed supported.
+
+The code-generated `footnote_wrap_continuation.docx` contains one paragraph
+whose 18 tokens automatically form 18 lines in both engines. Unmodified
+`40d506a` renders 1 page against Word's 2, logs
+`footnote_continuation_unresolved`, `footnote_reflow_unresolved`, and
+`footnote_layout_overlap`, and measures MAE 17.385, RMSE 61.611, changed
+pixels 9.25%, SSIM 0.461987 on the paired page. Reusing the bounded line-box
+split produces Word's exact 2/2 pages at 1241x625, is byte-deterministic, and
+measures mean MAE 8.830, RMSE 43.488, changed pixels 4.634%, SSIM 0.900397 at
+150 dpi without those warnings. A note containing an oversized paragraph plus
+other paragraphs remains unsupported and retains the unresolved warning.
 
 Basic endnote fidelity: `Unpacker` loads `word/endnotes.xml`;
 `DocumentParser` maps each non-negative `w:endnote` ID to paragraph IR and

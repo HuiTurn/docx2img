@@ -56,8 +56,8 @@ Office corpus uses code-generated minimal fixtures under
 Current office golden cases: `basic_text`, `date_field`, `drawingml_text`,
 `endnote`, `endnote_continuation`, `footnote`, `footnote_continuation`,
 `footnote_line_continuation`, `footnote_multiple_continuation`,
-`footnote_reflow`, `math_accent`, `math_bar`, `math_border_box`,
-`math_eq_arr`, `math_limit`, `page_break`, `shape_fill`.
+`footnote_reflow`, `footnote_wrap_continuation`, `math_accent`, `math_bar`,
+`math_border_box`, `math_eq_arr`, `math_limit`, `page_break`, `shape_fill`.
 Word COM / Poppler `pdftoppm` are
 **dev-only**;
 `src/docx2img` must never import Office. First office golden introduction
@@ -115,17 +115,26 @@ improves from a hard 1/2 page-count mismatch, MAE 3.616, RMSE 28.011, changed
 pixels 1.904%, SSIM 0.634642 to exact 2/2 pages, MAE 2.532, RMSE 23.560,
 changed pixels 1.312%, SSIM 0.937488, with byte-identical repeated output.
 
-A bounded single-paragraph path can also split a footnote at explicit
-`w:br` / `textWrapping` line boundaries. It requires one note paragraph whose
-laid lines correspond one-for-one with explicit breaks and rejects tables,
-floats and text boxes; arbitrary auto-wrapped paragraph continuation remains
-unsupported and emits `footnote_continuation_unresolved`. The
+A bounded single-paragraph path can also split a footnote at laid line
+boundaries. Explicit `w:br` / `textWrapping` runs must correspond one-for-one
+with the laid lines; a paragraph with no break runs may instead use its
+automatic wrap lines. Both variants require one simple inline-text block and
+reject tables, floats, text boxes, inline images/math, and grouped drawing
+content. The
 `footnote_line_continuation` Word 16.0 golden (150 dpi, 1241×625) improves from
 a hard 1/2 page-count mismatch, MAE 4.280, RMSE 30.711, changed pixels 2.226%,
 SSIM 0.561279 to exact 2/2 pages, MAE 2.240, RMSE 22.212, changed pixels
 1.154%, SSIM 0.925497, with byte-identical repeated output and no continuation
-or overlap warning. Definition tables, custom numbering, and custom separator
-content are not claimed supported.
+or overlap warning.
+
+The automatically wrapped `footnote_wrap_continuation` golden likewise
+improves from a hard 1/2 page-count mismatch, MAE 17.385, RMSE 61.611, changed
+pixels 9.25%, SSIM 0.461987 to exact 2/2 pages, MAE 8.830, RMSE 43.488,
+changed pixels 4.634%, SSIM 0.900397, with byte-identical repeated output and
+no continuation or overlap warning. A definition containing an oversized
+paragraph plus other paragraphs remains outside this bounded path and emits
+`footnote_continuation_unresolved`. Definition tables, custom numbering, and
+custom separator content are not claimed supported.
 
 Basic paragraph-only endnotes now load `word/endnotes.xml`, retain
 `w:endnoteReference` in the run model, and stack referenced definitions after

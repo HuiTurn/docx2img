@@ -1579,6 +1579,46 @@ def make_footnote_line_continuation(path: Path) -> Path:
     )
 
 
+def make_footnote_wrap_continuation(path: Path) -> Path:
+    """One automatically wrapped footnote paragraph spanning two pages."""
+    sect = (
+        "<w:sectPr>"
+        '<w:pgSz w:w="11906" w:h="6000"/>'
+        '<w:pgMar w:top="920" w:right="1800" w:bottom="920" w:left="1800" '
+        'w:header="720" w:footer="720" w:gutter="0"/>'
+        "</w:sectPr>"
+    )
+    body = _para(
+        _run("Body reference", size_half_pt=28, bare=True)
+        + '<w:r><w:rPr><w:vertAlign w:val="superscript"/>'
+        '<w:sz w:val="20"/></w:rPr>'
+        '<w:footnoteReference w:id="1"/></w:r>',
+        space_after=120,
+    )
+    tokens = " ".join(
+        f"AutoWrap{i:02d}" + ("M" * 19) for i in range(1, 19)
+    )
+    footnotes = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        f'<w:footnotes xmlns:w="{NS_W}">'
+        '<w:footnote w:type="separator" w:id="-1"><w:p><w:r>'
+        '<w:separator/></w:r></w:p></w:footnote>'
+        '<w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:r>'
+        '<w:continuationSeparator/></w:r></w:p></w:footnote>'
+        '<w:footnote w:id="1"><w:p>'
+        '<w:r><w:rPr><w:vertAlign w:val="superscript"/>'
+        '<w:sz w:val="20"/></w:rPr><w:footnoteRef/></w:r>'
+        '<w:r><w:tab/></w:r><w:r><w:rPr><w:sz w:val="20"/></w:rPr>'
+        f'<w:t>{tokens}</w:t></w:r>'
+        '</w:p></w:footnote></w:footnotes>'
+    )
+    return write_docx(
+        path,
+        _document(body + sect),
+        footnotes_xml=footnotes,
+    )
+
+
 def make_endnote(path: Path) -> Path:
     """One body reference and one plain-text endnote definition."""
     body = (
@@ -1691,6 +1731,9 @@ if __name__ == "__main__":
     )
     make_footnote_line_continuation(
         out / "footnote_line_continuation.docx"
+    )
+    make_footnote_wrap_continuation(
+        out / "footnote_wrap_continuation.docx"
     )
     make_endnote(out / "endnote.docx")
     make_endnote_continuation(out / "endnote_continuation.docx")
