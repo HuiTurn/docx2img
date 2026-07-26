@@ -12,6 +12,7 @@ from ..font.manager import FontManager
 from ..model.math_ast import (
     MathNode, MathChar, MathRunSeq, MathFrac, MathRad, MathSup, MathSub,
     MathSubSup, MathNary, MathDelim, MathMatrix, MathFunc, MathBar,
+    MathAccent,
 )
 
 
@@ -51,6 +52,8 @@ class MathLayoutEngine:
             return self._rad(node, size_px)
         if isinstance(node, MathBar):
             return self._bar(node, size_px)
+        if isinstance(node, MathAccent):
+            return self._accent(node, size_px)
         if isinstance(node, MathSup):
             return self._sup(node, size_px)
         if isinstance(node, MathSub):
@@ -224,6 +227,36 @@ class MathLayoutEngine:
             "y2": line_y,
             "width": rule,
         })
+        return out
+
+    def _accent(self, node: MathAccent, size_px: float) -> MathBox:
+        body = self._layout(node.body, size_px)
+        accent = self._char(MathChar(node.char, style="p"), size_px * 0.75)
+        width = max(body.width, accent.width)
+        body_x = (width - body.width) / 2.0
+        accent_x = (width - accent.width) / 2.0
+        out = MathBox(
+            width=width,
+            height=max(body.height, accent.height),
+            ascent=body.ascent,
+            descent=body.descent,
+        )
+        for text in accent.texts:
+            out.texts.append({
+                **text,
+                "x": text["x"] + accent_x,
+            })
+        for text in body.texts:
+            out.texts.append({
+                **text,
+                "x": text["x"] + body_x,
+            })
+        for line in body.lines:
+            out.lines.append({
+                **line,
+                "x1": line["x1"] + body_x,
+                "x2": line["x2"] + body_x,
+            })
         return out
 
     def _sup(self, node: MathSup, size_px: float) -> MathBox:

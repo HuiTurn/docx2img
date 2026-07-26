@@ -1944,6 +1944,7 @@ tests/
 #   basic_text  2/2 pages  MAE 2.16  SSIM 0.95
 #   date_field  1/1 page  MAE 0.308  SSIM 0.982710  diff% 0.159%
 #   drawingml_text  1/1 page  MAE 0.554  SSIM 0.889565  diff% 0.317%
+#   math_accent  1/1 page  MAE 0.010  SSIM 0.999180  diff% ~0.006%
 #   math_bar  1/1 page  MAE 0.013  SSIM 0.998945  diff% ~0.006%
 #   page_break  3/3 pages  MAE 0.565  SSIM 0.955725  diff% 0.284%
 #   shape_fill  1/1 pages  MAE 0.84  SSIM 0.97  diff% 0.6%
@@ -1970,8 +1971,21 @@ flattening no longer drops the bar. The centered, single-structure
 `math_bar.docx` fixture improves against Word 16.0 from MAE 0.019, RMSE 2.056,
 changed pixels 0.009%, SSIM 0.993927 to MAE 0.013, RMSE 1.671, changed pixels
 approximately 0.006%, SSIM 0.998945 at 150 dpi (1/1 page, exact size,
-deterministic). This does not extend the claim to `eqArr`, limit, accent or
+deterministic). This does not extend the claim to `eqArr`, limit or
 border-box structures.
+
+OMML accent fidelity: `m:acc` maps to a native `MathAccent` AST with the
+explicit `m:accPr/m:chr` character and parsed `m:e` body. The layout centers
+the accent over the body while retaining the body's height and baseline;
+rendering the mark in the existing ascender area avoids the vertical shift
+introduced by stacking two independent text boxes. A missing `m:e` logs the
+stable `omml_acc_missing_body` warning and remains non-fatal. The centered
+`math_accent.docx` fixture improves against Word 16.0 from the flattened
+body's RMSE 1.410 and SSIM 0.998550 to RMSE 1.396 and SSIM 0.999180 at 150
+dpi (MAE 0.010, changed pixels approximately 0.006%, 1/1 page, exact size,
+deterministic). This is a basic single-character accent path; font-specific
+stretching/combining behavior and `eqArr`, limit and border-box structures
+remain unsupported or approximate.
 
 Manual page break fidelity: a paragraph whose only content is `w:br
 w:type="page"` keeps its mark-line height and trailing paragraph spacing

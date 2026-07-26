@@ -10,7 +10,14 @@ from docx2img.parse.document import DocumentParser
 from docx2img.parse.math_omml import OmmlParser
 from docx2img.layout.engine import LayoutEngine
 from docx2img.layout.math_layout import MathLayoutEngine
-from docx2img.model.math_ast import MathBar, MathFrac, MathSup, MathRad, MathNary
+from docx2img.model.math_ast import (
+    MathAccent,
+    MathBar,
+    MathFrac,
+    MathSup,
+    MathRad,
+    MathNary,
+)
 from docx2img.model.paragraph import Paragraph
 from tests.fixtures.gen_fixtures import make_math
 
@@ -70,6 +77,31 @@ class TestOmmlParser:
         assert bar.position == "bottom"
         assert bar.body is not None
 
+    def test_accent_has_native_ast(self):
+        accent = OmmlParser().parse_xml(
+            (
+                '<m:oMath xmlns:m="http://schemas.openxmlformats.org/'
+                'officeDocument/2006/math"><m:acc>'
+                '<m:accPr><m:chr m:val="~"/></m:accPr>'
+                '<m:e><m:r><m:t>xy</m:t></m:r></m:e>'
+                '</m:acc></m:oMath>'
+            ).encode("utf-8")
+        )
+        assert isinstance(accent, MathAccent)
+        assert accent.char == "~"
+        assert accent.body is not None
+
+    def test_malformed_accent_warns_without_crashing(self, caplog):
+        with caplog.at_level("WARNING", logger="docx2img.parse.math_omml"):
+            accent = OmmlParser().parse_xml(
+                b'<m:oMath xmlns:m="http://schemas.openxmlformats.org/'
+                b'officeDocument/2006/math"><m:acc><m:accPr>'
+                b'<m:chr m:val="~"/></m:accPr></m:acc></m:oMath>'
+            )
+        assert isinstance(accent, MathAccent)
+        assert accent.body is None
+        assert "omml_acc_missing_body" in caplog.text
+
 
 class TestMathLayoutRender:
     def test_layout_boxes_nonzero(self):
@@ -99,6 +131,27 @@ class TestMathLayoutRender:
         assert len(top.lines) == len(bottom.lines) == 1
         assert top.lines[0]["y1"] < min(text["y"] for text in top.texts)
         assert bottom.lines[0]["y1"] > max(text["y"] for text in bottom.texts)
+
+    def test_layout_accent_overlays_mark_without_shifting_body(self):
+        body = OmmlParser().parse_xml(
+            b'<m:oMath xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math">'
+            b"<m:r><m:t>xy</m:t></m:r></m:oMath>"
+        )
+        box = MathLayoutEngine(Config(dpi=96)).layout(
+            MathAccent(body=body, char="~"),
+            14.0,
+        )
+        assert len(box.texts) >= 2
+        accent = next(text for text in box.texts if text["text"] == "~")
+        body_text = next(text for text in box.texts if text["text"] != "~")
+        assert accent["y"] == body_text["y"]
+        assert box.height == pytest.approx(
+            max(
+                font.getbbox(text["text"])[3] - font.getbbox(text["text"])[1]
+                for text in box.texts
+                for font in [text["font"]]
+            )
+        )
 
     def test_parse_docx_math_runs(self):
         package = Unpacker(FIXTURES / "math.docx").unpack()

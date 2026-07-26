@@ -42,6 +42,12 @@ class MathBar(MathNode):
 
 
 @dataclass
+class MathAccent(MathNode):
+    body: Optional[MathNode] = None
+    char: str = "^"
+
+
+@dataclass
 class MathSup(MathNode):
     base: Optional[MathNode] = None
     superscript: Optional[MathNode] = None

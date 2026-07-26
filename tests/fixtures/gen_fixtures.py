@@ -1269,6 +1269,18 @@ def make_math_bar(path: Path) -> Path:
     return write_docx(path, _document(body))
 
 
+def make_math_accent(path: Path) -> Path:
+    """Single native OMML accent, isolated from paragraph-flow noise."""
+    accent = (
+        f'<m:oMath xmlns:m="{NS_M}"><m:acc>'
+        '<m:accPr><m:chr m:val="~"/></m:accPr>'
+        '<m:e><m:r><m:t>xy</m:t></m:r></m:e>'
+        '</m:acc></m:oMath>'
+    )
+    body = _para(accent, align="center") + _sect_pr()
+    return write_docx(path, _document(body))
+
+
 if __name__ == "__main__":
     out = Path(__file__).parent
     make_basic_text(out / "basic_text.docx")
@@ -1291,4 +1303,5 @@ if __name__ == "__main__":
     make_drawingml_text(out / "drawingml_text.docx")
     make_math(out / "math.docx")
     make_math_bar(out / "math_bar.docx")
+    make_math_accent(out / "math_accent.docx")
     print("Fixtures written to", out)

@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import logging
 import xml.etree.ElementTree as ET
 from typing import Optional, List
 
 from ..model.math_ast import (
     MathNode, MathChar, MathRunSeq, MathFrac, MathRad, MathSup, MathSub,
     MathSubSup, MathNary, MathDelim, MathMatrix, MathFunc, MathBar,
+    MathAccent,
 )
 
 M = "http://schemas.openxmlformats.org/officeDocument/2006/math"
+logger = logging.getLogger(__name__)
 
 
 class OmmlParser:
@@ -43,6 +46,19 @@ class OmmlParser:
                 else "top"
             )
             return MathBar(body=self._child(elem, "e"), position=position)
+        if tag == "acc":
+            chr_elem = elem.find(f"{{{M}}}accPr/{{{M}}}chr")
+            char = (
+                chr_elem.get(f"{{{M}}}val", "^")
+                if chr_elem is not None
+                else "^"
+            ) or "^"
+            body = self._child(elem, "e")
+            if body is None:
+                logger.warning(
+                    "omml_acc_missing_body: m:acc has no renderable m:e"
+                )
+            return MathAccent(body=body, char=char)
         if tag == "sSup":
             return MathSup(base=self._child(elem, "e"), superscript=self._child(elem, "sup"))
         if tag == "sSub":
@@ -126,7 +142,7 @@ class OmmlParser:
         for child in elem:
             tag = child.tag.split("}")[-1]
             if tag in (
-                "rPr", "fPr", "radPr", "barPr", "sSupPr", "sSubPr",
+                "rPr", "fPr", "radPr", "barPr", "accPr", "sSupPr", "sSubPr",
                 "naryPr", "dPr", "mPr", "ctrlPr",
             ):
                 continue

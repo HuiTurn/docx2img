@@ -79,6 +79,7 @@ def test_office_cases_and_paths_isolated_from_libreoffice():
     assert "basic_text" in generate_office.CASES
     assert "date_field" in generate_office.CASES
     assert "drawingml_text" in generate_office.CASES
+    assert "math_accent" in generate_office.CASES
     assert "math_bar" in generate_office.CASES
     assert "page_break" in generate_office.CASES
     assert "shape_fill" in generate_office.CASES
@@ -138,6 +139,17 @@ def test_math_bar_fixture_is_deterministic(tmp_path):
     a = make_math_bar(tmp_path / "math_bar.docx")
     h1 = generate_office.sha256(a)
     b = make_math_bar(tmp_path / "math_bar.docx")
+    h2 = generate_office.sha256(b)
+    assert h1 == h2
+    assert a.stat().st_size > 1000
+
+
+def test_math_accent_fixture_is_deterministic(tmp_path):
+    from fixtures.gen_fixtures import make_math_accent
+
+    a = make_math_accent(tmp_path / "math_accent.docx")
+    h1 = generate_office.sha256(a)
+    b = make_math_accent(tmp_path / "math_accent.docx")
     h2 = generate_office.sha256(b)
     assert h1 == h2
     assert a.stat().st_size > 1000

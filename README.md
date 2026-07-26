@@ -54,7 +54,8 @@ and is **not** evidence of Word fidelity.
 Office corpus uses code-generated minimal fixtures under
 `testdata/regression/office-min/` (no third-party licensed DOCX required).
 Current office golden cases: `basic_text`, `date_field`, `drawingml_text`,
-`math_bar`, `page_break`, `shape_fill`. Word COM / Poppler `pdftoppm` are
+`math_accent`, `math_bar`, `page_break`, `shape_fill`. Word COM / Poppler
+`pdftoppm` are
 **dev-only**;
 `src/docx2img` must never import Office. First office golden introduction
 records baseline metrics without a global MAE/SSIM pass threshold; later
@@ -75,7 +76,16 @@ of losing the bar while flattening its body. The isolated `math_bar` Word
 16.0 golden (150 dpi, 1/1 page, exact size, deterministic) improves from MAE
 0.019, RMSE 2.056, changed pixels 0.009%, SSIM 0.993927 to MAE 0.013, RMSE
 1.671, changed pixels ≈0.006%, SSIM 0.998945. Other advanced OMML structures
-such as `eqArr`, limits, accents and border boxes remain basic/unsupported.
+such as `eqArr`, limits and border boxes remain basic/unsupported.
+
+OMML `m:acc` has a native `MathAccent` AST for an explicit `m:chr` and its
+`m:e` body. The accent is centered in the body's existing ascender area, so
+the body baseline is not shifted. Missing bodies emit
+`omml_acc_missing_body`. The isolated `math_accent` Word 16.0 golden (150
+dpi, 1/1 page, exact size, deterministic) improves the old flattened result
+from RMSE 1.410 and SSIM 0.998550 to RMSE 1.396 and SSIM 0.999180 (MAE 0.010,
+changed pixels approximately 0.006%). Stretching/combining behavior beyond
+this basic character subset is approximate.
 
 Manual page breaks (`w:br w:type="page"`) preserve the invisible paragraph
 mark and its trailing paragraph spacing during page-fit checks. When that
