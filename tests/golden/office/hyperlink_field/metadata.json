@@ -1,0 +1,30 @@
+{
+  "provider": "office",
+  "case": "hyperlink_field",
+  "input_docx": "hyperlink_field.docx",
+  "input_path": "testdata/regression/office-min/hyperlink_field.docx",
+  "input_sha256": "1a2f3c69bdede15906e3b42b88d50a15292ec6a4c4e8472cc8bf65abdfe7f8fa",
+  "word_version": "16.0",
+  "pdftoppm_version": "pdftoppm version 26.05.0",
+  "platform": "Windows-10-10.0.26200-SP0",
+  "python_version": "3.10.10",
+  "docx2img_version": "0.1.0",
+  "dpi": 150,
+  "color_mode": "RGB",
+  "background": [
+    255,
+    255,
+    255
+  ],
+  "reference_datetime": null,
+  "generated_at": "2026-07-26T14:01:38.828504+00:00",
+  "pdf_pages": 1,
+  "page_sizes_px": [
+    [
+      1241,
+      1754
+    ]
+  ],
+  "fonts_note": "Word used the host font environment; substitutions are not individually traced by ExportAsFixedFormat.",
+  "baseline_note": "First-introduction baseline: no global MAE/SSIM pass threshold. Subsequent slices must improve the target case without regressing existing office goldens."
+}

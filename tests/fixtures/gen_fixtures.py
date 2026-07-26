@@ -895,6 +895,48 @@ def make_date_field(path: Path) -> Path:
     )
 
 
+def make_hyperlink_field(path: Path) -> Path:
+    """One-page footer with a cached w:fldSimple HYPERLINK result."""
+    footer_xml = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:ftr xmlns:w="{NS_W}">
+  <w:p>
+    <w:pPr><w:jc w:val="center"/></w:pPr>
+    {_run("Link: ", bare=True)}
+    <w:fldSimple w:instr=' HYPERLINK "https://example.com" '>
+      <w:r>
+        <w:rPr>
+          <w:color w:val="0563C1"/>
+          <w:u w:val="single"/>
+          <w:sz w:val="22"/>
+        </w:rPr>
+        <w:t>Cached destination</w:t>
+      </w:r>
+    </w:fldSimple>
+  </w:p>
+</w:ftr>"""
+    sect = (
+        '<w:sectPr>'
+        '<w:footerReference w:type="default" r:id="rId21" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/>'
+        '<w:pgSz w:w="11906" w:h="16838"/>'
+        '<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" '
+        'w:header="720" w:footer="720" w:gutter="0"/>'
+        '</w:sectPr>'
+    )
+    rels = [
+        '<Relationship Id="rId21" '
+        'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" '
+        'Target="footer1.xml"/>',
+    ]
+    body = _para(_run("Cached HYPERLINK field.", bare=True)) + sect
+    return write_docx(
+        path,
+        _document(body),
+        extra_rels=rels,
+        footers={"footer1.xml": footer_xml},
+    )
+
+
 def make_lists(path: Path) -> Path:
     """Bullet + numbered lists."""
     numbering = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -1712,6 +1754,7 @@ if __name__ == "__main__":
     make_two_columns(out / "two_columns.docx")
     make_header_footer(out / "headers_footers.docx")
     make_date_field(out / "date_field.docx")
+    make_hyperlink_field(out / "hyperlink_field.docx")
     make_lists(out / "lists.docx")
     make_justify_tabs(out / "justify_tabs.docx")
     make_float_image(out / "float_image.docx")

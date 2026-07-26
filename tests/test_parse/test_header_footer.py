@@ -1,5 +1,6 @@
 """Header/footer field parsing and deterministic expansion tests."""
 
+import logging
 from datetime import datetime
 
 from docx2img.config import Config
@@ -36,6 +37,22 @@ def test_default_reference_datetime_is_fixed():
     first = Config().reference_datetime
     second = Config().reference_datetime
     assert first == second == datetime(2000, 1, 1)
+
+
+def test_unsupported_simple_field_without_cache_warns(caplog):
+    xml = (
+        '<w:ftr xmlns:w="http://schemas.openxmlformats.org/'
+        'wordprocessingml/2006/main">'
+        '<w:p><w:fldSimple w:instr=" REF missing "/></w:p></w:ftr>'
+    ).encode()
+    parser = HeaderFooterParser(lambda elem: "parsed")
+    with caplog.at_level(logging.WARNING):
+        blocks = parser.parse(xml)
+    assert len(blocks) == 1
+    assert (
+        "header_footer_field_unsupported: REF has no cached result"
+        in caplog.text
+    )
 
 
 def test_date_fixture_expands_reference_time_during_layout(tmp_path):

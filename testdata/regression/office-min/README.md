@@ -11,14 +11,17 @@ Used exclusively by the **office** (Microsoft Word) golden provider:
 Cases are `basic_text`, `date_field`, `drawingml_text`, `endnote`,
 `endnote_continuation`, `footnote`, `footnote_continuation`,
 `footnote_line_continuation`, `footnote_multiple_continuation`,
-`footnote_reflow`, `footnote_wrap_continuation`, `math_accent`, `math_bar`,
-`math_border_box`, `math_eq_arr`, `math_limit`, `page_break`, and `shape_fill`.
+`footnote_reflow`, `footnote_wrap_continuation`, `hyperlink_field`,
+`math_accent`, `math_bar`, `math_border_box`, `math_eq_arr`, `math_limit`,
+`page_break`, and `shape_fill`.
 `date_field.docx` has a stale cached DATE
 result so Word's
 read-only field update and the renderer's fixed `reference_datetime` can be
 compared without making the fixture itself time-dependent.
 `drawingml_text.docx` isolates native `a:sp/a:txSp/a:txBody` shape text and
 does not contain a `wps:txbx/w:txbxContent` fallback.
+`hyperlink_field.docx` isolates a footer `w:fldSimple` HYPERLINK with a styled
+cached display result; link navigation is not part of the visual fixture.
 `endnote.docx` isolates one `w:endnoteReference` and one paragraph-only
 definition in `word/endnotes.xml`.
 `endnote_continuation.docx` isolates one 18-paragraph endnote that Word

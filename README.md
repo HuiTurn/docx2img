@@ -56,8 +56,9 @@ Office corpus uses code-generated minimal fixtures under
 Current office golden cases: `basic_text`, `date_field`, `drawingml_text`,
 `endnote`, `endnote_continuation`, `footnote`, `footnote_continuation`,
 `footnote_line_continuation`, `footnote_multiple_continuation`,
-`footnote_reflow`, `footnote_wrap_continuation`, `math_accent`, `math_bar`,
-`math_border_box`, `math_eq_arr`, `math_limit`, `page_break`, `shape_fill`.
+`footnote_reflow`, `footnote_wrap_continuation`, `hyperlink_field`,
+`math_accent`, `math_bar`, `math_border_box`, `math_eq_arr`, `math_limit`,
+`page_break`, `shape_fill`.
 Word COM / Poppler `pdftoppm` are
 **dev-only**;
 `src/docx2img` must never import Office. First office golden introduction
@@ -73,6 +74,16 @@ across calendar days. The `date_field` Word 16.0 golden records its reference
 time in metadata and reuses it for both renderer passes (150 dpi, 1/1 page,
 exact size): MAE 0.308, RMSE 8.215, changed pixels 0.159%, SSIM 0.982710.
 Callers that want “today” must pass that time explicitly.
+
+Unsupported simple fields in headers and footers no longer erase an existing
+cached display result. For `w:fldSimple` HYPERLINK, the parser keeps the cached
+child runs and their color/underline styling while logging
+`header_footer_field_cached`; an unsupported field without cached content logs
+`header_footer_field_unsupported`. This is visible fallback, not link target
+evaluation or navigation support, and complex-field fallback remains separate.
+The `hyperlink_field` Word 16.0 golden (150 dpi, 1/1 page, exact size,
+deterministic) improves from MAE 0.263, RMSE 7.429, changed pixels 0.14%,
+SSIM 0.932564 to MAE 0.254, RMSE 7.091, changed pixels 0.15%, SSIM 0.980814.
 
 Basic paragraph-only footnotes now load `word/footnotes.xml`, retain
 `w:footnoteReference` in the run model, and render the referenced note at the

@@ -1952,6 +1952,7 @@ tests/
 #   footnote_multiple_continuation  2/2 pages  MAE 2.532  SSIM 0.937488  diff% 1.312%
 #   footnote_reflow  2/2 pages  MAE 0.870  SSIM 0.925701  diff% 0.443%
 #   footnote_wrap_continuation  2/2 pages  MAE 8.830  SSIM 0.900397  diff% 4.634%
+#   hyperlink_field  1/1 page  MAE 0.254  SSIM 0.980814  diff% 0.15%
 #   math_accent  1/1 page  MAE 0.010  SSIM 0.999180  diff% ~0.006%
 #   math_bar  1/1 page  MAE 0.013  SSIM 0.998945  diff% ~0.006%
 #   math_border_box  1/1 page  MAE 0.013  SSIM 0.997239  diff% ~0.007%
@@ -1974,6 +1975,23 @@ renderer is deterministic and matches page count/size with MAE 0.308, RMSE
 with the system clock advanced to `2099-12-31` measures MAE 0.323, RMSE 8.438,
 changed pixels 0.165%, and SSIM 0.980758, demonstrating the eliminated
 clock-dependent drift.
+
+For header/footer `w:fldSimple` instructions outside PAGE, NUMPAGES, and DATE,
+the field wrapper is not silently replaced with an empty run when OOXML
+contains a cached display result. Direct cached children are spliced back into
+the paragraph so normal parsing retains their run properties, and the parser
+logs `header_footer_field_cached: <TOKEN> rendered cached result`. A field with
+no cached children logs `header_footer_field_unsupported`. This is a visible
+fallback only: HYPERLINK target navigation is not evaluated, and unsupported
+complex begin/separate/end fields are still a separate limitation.
+
+The code-generated `hyperlink_field.docx` isolates a footer `w:fldSimple`
+HYPERLINK with blue underlined cached text. Unmodified `3e43148` drops the
+cached run and measures MAE 0.263, RMSE 7.429, changed pixels 0.14%, SSIM
+0.932564 against Word 16.0. Cached-result preservation produces the same 1/1
+page at 1241x1754, is byte-deterministic, and measures MAE 0.254, RMSE 7.091,
+changed pixels 0.15%, SSIM 0.980814 at 150 dpi while emitting the explicit
+cached-fallback warning.
 
 Basic footnote fidelity: `Unpacker` loads `word/footnotes.xml`;
 `DocumentParser` maps each non-negative `w:footnote` ID to paragraph IR and

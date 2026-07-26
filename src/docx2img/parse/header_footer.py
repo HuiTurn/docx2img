@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import xml.etree.ElementTree as ET
 from datetime import datetime
@@ -15,6 +16,8 @@ FIELD_PAGE = "{{PAGE}}"
 FIELD_NUMPAGES = "{{NUMPAGES}}"
 FIELD_DATE = "{{DATE}}"
 DEFAULT_REFERENCE_DATETIME = datetime(2000, 1, 1)
+
+logger = logging.getLogger(__name__)
 
 
 class HeaderFooterParser:
@@ -51,14 +54,35 @@ class HeaderFooterParser:
         for fld in list(para_elem.findall(f"{{{NS.W}}}fldSimple")):
             instr = fld.get(f"{{{NS.W}}}instr", "") or ""
             placeholder = self.resolve_field_instr(instr, as_placeholder=True)
-            r = ET.Element(f"{{{NS.W}}}r")
-            t = ET.SubElement(r, f"{{{NS.W}}}t")
-            t.text = placeholder
-            # Replace fldSimple with run in parent
             parent = para_elem
             idx = list(parent).index(fld)
             parent.remove(fld)
-            parent.insert(idx, r)
+            if placeholder:
+                r = ET.Element(f"{{{NS.W}}}r")
+                t = ET.SubElement(r, f"{{{NS.W}}}t")
+                t.text = placeholder
+                parent.insert(idx, r)
+                continue
+
+            token = self.field_token(instr)
+            cached_children = list(fld)
+            for offset, child in enumerate(cached_children):
+                parent.insert(idx + offset, child)
+            has_cached_text = any(
+                (text.text or "")
+                for child in cached_children
+                for text in child.iter(f"{{{NS.W}}}t")
+            )
+            if has_cached_text:
+                logger.warning(
+                    "header_footer_field_cached: %s rendered cached result",
+                    token,
+                )
+            else:
+                logger.warning(
+                    "header_footer_field_unsupported: %s has no cached result",
+                    token,
+                )
 
         # Complex fields: begin → instrText → separate → result → end
         children = list(para_elem)
@@ -98,6 +122,11 @@ class HeaderFooterParser:
             i += 1
 
     @staticmethod
+    def field_token(instr: str) -> str:
+        cleaned = re.sub(r"\s+", " ", (instr or "").strip())
+        return cleaned.split(" ", 1)[0].upper() if cleaned else "UNKNOWN"
+
+    @staticmethod
     def resolve_field_instr(
         instr: str,
         as_placeholder: bool = False,
@@ -105,7 +134,7 @@ class HeaderFooterParser:
     ) -> str:
         cleaned = re.sub(r"\s+", " ", (instr or "").strip()).upper()
         # Strip quotes / switches
-        token = cleaned.split(" ")[0] if cleaned else ""
+        token = HeaderFooterParser.field_token(cleaned)
         if token == "PAGE":
             return FIELD_PAGE if as_placeholder else ""
         if token == "NUMPAGES":
