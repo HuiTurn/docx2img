@@ -1946,6 +1946,7 @@ tests/
 #   drawingml_text  1/1 page  MAE 0.554  SSIM 0.889565  diff% 0.317%
 #   endnote  1/1 page  MAE 0.122  SSIM 0.989004  diff% 0.063%
 #   footnote  1/1 page  MAE 0.138  SSIM 0.990319  diff% 0.070%
+#   footnote_continuation  2/2 pages  MAE 2.845  SSIM 0.902276  diff% 1.486%
 #   footnote_reflow  2/2 pages  MAE 0.870  SSIM 0.925701  diff% 0.443%
 #   math_accent  1/1 page  MAE 0.010  SSIM 0.999180  diff% ~0.006%
 #   math_bar  1/1 page  MAE 0.013  SSIM 0.998945  diff% ~0.006%
@@ -2003,9 +2004,29 @@ renders 1 page against Word's 2, overlaps the footnote, and measures MAE
 1.731, RMSE 19.616, changed pixels 0.878%, SSIM 0.728749 on the only paired
 page. The bounded reflow produces Word's 2/2 pages at the exact 1241x625
 sizes, is byte-deterministic, and measures mean MAE 0.870, RMSE 13.854,
-changed pixels 0.443%, SSIM 0.925701 at 150 dpi. Footnote continuation,
-reference paragraphs that cannot move, definition tables, custom numbering
-and section separator content are not claimed supported.
+changed pixels 0.443%, SSIM 0.925701 at 150 dpi. Reference paragraphs that
+cannot move, definition tables, custom numbering and section separator
+content are not claimed supported.
+
+Oversized footnote continuation is a separate bounded pass before overlap
+reflow. For one referenced multi-paragraph note, paragraph boxes are measured
+against the remaining page-bottom region and split only at paragraph
+boundaries. The first chunk stays with its reference; later chunks receive
+inserted pages with the same section geometry and decorations. The final page
+stamp therefore includes continuation pages in PAGE / NUMPAGES, and continuation
+pages use Word's full-width separator. A paragraph that cannot fit on one page
+logs `footnote_continuation_unresolved`; multiple oversized notes on one page
+log `footnote_continuation_multiple_notes` and remain visible through
+`footnote_layout_overlap`.
+
+The code-generated `footnote_continuation.docx` isolates one 18-paragraph
+definition on a short page. Unmodified `ac26cb5` renders 1 page against Word's
+2 and measures MAE 4.657, RMSE 32.058, changed pixels 2.420%, SSIM 0.276686
+on the paired page. The continuation pass produces Word's exact 2/2 pages at
+1241x625, is byte-deterministic, and measures mean MAE 2.845, RMSE 24.959,
+changed pixels 1.486%, SSIM 0.902276 at 150 dpi. Continuation within one
+paragraph, multiple simultaneous continued notes, definition tables, custom
+numbering, and custom separator content are not claimed supported.
 
 Basic endnote fidelity: `Unpacker` loads `word/endnotes.xml`;
 `DocumentParser` maps each non-negative `w:endnote` ID to paragraph IR and

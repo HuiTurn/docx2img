@@ -47,9 +47,12 @@ def test_unmovable_oversized_footnote_keeps_visible_warnings(tmp_path, caplog):
     docx = make_footnote(tmp_path / "footnote.docx")
     config = Config(dpi=96)
     model = DocumentParser(Unpacker(docx).unpack(), config).parse()
-    model.footnotes["1"] *= 80
+    for run in model.footnotes["1"][0].runs:
+        if run.text is not None and run.footnote_id is None:
+            run.text.text = "oversized footnote text " * 1000
     with caplog.at_level(logging.WARNING):
         pages = LayoutEngine(model, config).layout()
     assert pages[0].footnote_blocks
+    assert "footnote_continuation_unresolved" in caplog.text
     assert "footnote_reflow_unresolved" in caplog.text
     assert "footnote_layout_overlap" in caplog.text

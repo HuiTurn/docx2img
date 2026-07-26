@@ -81,6 +81,7 @@ def test_office_cases_and_paths_isolated_from_libreoffice():
     assert "drawingml_text" in generate_office.CASES
     assert "endnote" in generate_office.CASES
     assert "footnote" in generate_office.CASES
+    assert "footnote_continuation" in generate_office.CASES
     assert "footnote_reflow" in generate_office.CASES
     assert "math_accent" in generate_office.CASES
     assert "math_bar" in generate_office.CASES
@@ -158,6 +159,22 @@ def test_footnote_reflow_fixture_is_deterministic(tmp_path):
     a = make_footnote_reflow(tmp_path / "footnote_reflow.docx")
     h1 = generate_office.sha256(a)
     b = make_footnote_reflow(tmp_path / "footnote_reflow.docx")
+    h2 = generate_office.sha256(b)
+    assert h1 == h2
+    assert a.stat().st_size > 1000
+
+
+def test_footnote_continuation_fixture_is_deterministic(tmp_path):
+    """The multi-page footnote fixture must hash-stably regenerate."""
+    from fixtures.gen_fixtures import make_footnote_continuation
+
+    a = make_footnote_continuation(
+        tmp_path / "footnote_continuation.docx"
+    )
+    h1 = generate_office.sha256(a)
+    b = make_footnote_continuation(
+        tmp_path / "footnote_continuation.docx"
+    )
     h2 = generate_office.sha256(b)
     assert h1 == h2
     assert a.stat().st_size > 1000
