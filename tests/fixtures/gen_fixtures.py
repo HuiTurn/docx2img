@@ -1281,6 +1281,17 @@ def make_math_accent(path: Path) -> Path:
     return write_docx(path, _document(body))
 
 
+def make_math_border_box(path: Path) -> Path:
+    """Single native OMML border box, isolated from paragraph-flow noise."""
+    border = (
+        f'<m:oMath xmlns:m="{NS_M}"><m:borderBox>'
+        '<m:e><m:r><m:t>xy</m:t></m:r></m:e>'
+        '</m:borderBox></m:oMath>'
+    )
+    body = _para(border, align="center") + _sect_pr()
+    return write_docx(path, _document(body))
+
+
 if __name__ == "__main__":
     out = Path(__file__).parent
     make_basic_text(out / "basic_text.docx")
@@ -1304,4 +1315,5 @@ if __name__ == "__main__":
     make_math(out / "math.docx")
     make_math_bar(out / "math_bar.docx")
     make_math_accent(out / "math_accent.docx")
+    make_math_border_box(out / "math_border_box.docx")
     print("Fixtures written to", out)

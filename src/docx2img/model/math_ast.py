@@ -48,6 +48,19 @@ class MathAccent(MathNode):
 
 
 @dataclass
+class MathBorderBox(MathNode):
+    body: Optional[MathNode] = None
+    hide_top: bool = False
+    hide_bottom: bool = False
+    hide_left: bool = False
+    hide_right: bool = False
+    strike_horizontal: bool = False
+    strike_vertical: bool = False
+    strike_bottom_left_top_right: bool = False
+    strike_top_left_bottom_right: bool = False
+
+
+@dataclass
 class MathSup(MathNode):
     base: Optional[MathNode] = None
     superscript: Optional[MathNode] = None

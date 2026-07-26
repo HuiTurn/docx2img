@@ -13,6 +13,7 @@ from docx2img.layout.math_layout import MathLayoutEngine
 from docx2img.model.math_ast import (
     MathAccent,
     MathBar,
+    MathBorderBox,
     MathFrac,
     MathSup,
     MathRad,
@@ -102,6 +103,32 @@ class TestOmmlParser:
         assert accent.body is None
         assert "omml_acc_missing_body" in caplog.text
 
+    def test_border_box_has_native_ast(self):
+        border = OmmlParser().parse_xml(
+            (
+                '<m:oMath xmlns:m="http://schemas.openxmlformats.org/'
+                'officeDocument/2006/math"><m:borderBox>'
+                '<m:borderBoxPr><m:hideTop m:val="1"/></m:borderBoxPr>'
+                '<m:e><m:r><m:t>xy</m:t></m:r></m:e>'
+                '</m:borderBox></m:oMath>'
+            ).encode("utf-8")
+        )
+        assert isinstance(border, MathBorderBox)
+        assert border.body is not None
+        assert border.hide_top is True
+        assert border.hide_bottom is False
+
+    def test_malformed_border_box_warns_without_crashing(self, caplog):
+        with caplog.at_level("WARNING", logger="docx2img.parse.math_omml"):
+            border = OmmlParser().parse_xml(
+                b'<m:oMath xmlns:m="http://schemas.openxmlformats.org/'
+                b'officeDocument/2006/math"><m:borderBox/>'
+                b"</m:oMath>"
+            )
+        assert isinstance(border, MathBorderBox)
+        assert border.body is None
+        assert "omml_border_box_missing_body" in caplog.text
+
 
 class TestMathLayoutRender:
     def test_layout_boxes_nonzero(self):
@@ -152,6 +179,27 @@ class TestMathLayoutRender:
                 for font in [text["font"]]
             )
         )
+
+    def test_layout_border_box_draws_four_sides_around_body(self):
+        body = OmmlParser().parse_xml(
+            b'<m:oMath xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math">'
+            b"<m:r><m:t>xy</m:t></m:r></m:oMath>"
+        )
+        box = MathLayoutEngine(Config(dpi=96)).layout(
+            MathBorderBox(body=body),
+            14.0,
+        )
+        assert len(box.lines) == 4
+        assert min(line["x1"] for line in box.lines) == 0
+        assert max(line["x2"] for line in box.lines) == box.width
+        border_top = min(line["y1"] for line in box.lines)
+        assert border_top > 0
+        assert max(line["y2"] for line in box.lines) == box.height
+        assert min(text["x"] for text in box.texts) > 0
+        for text in box.texts:
+            bbox = text["font"].getbbox(text["text"])
+            assert text["y"] + bbox[1] > border_top
+            assert text["y"] + bbox[3] < box.height
 
     def test_parse_docx_math_runs(self):
         package = Unpacker(FIXTURES / "math.docx").unpack()

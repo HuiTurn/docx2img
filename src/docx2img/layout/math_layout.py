@@ -12,7 +12,7 @@ from ..font.manager import FontManager
 from ..model.math_ast import (
     MathNode, MathChar, MathRunSeq, MathFrac, MathRad, MathSup, MathSub,
     MathSubSup, MathNary, MathDelim, MathMatrix, MathFunc, MathBar,
-    MathAccent,
+    MathAccent, MathBorderBox,
 )
 
 
@@ -54,6 +54,8 @@ class MathLayoutEngine:
             return self._bar(node, size_px)
         if isinstance(node, MathAccent):
             return self._accent(node, size_px)
+        if isinstance(node, MathBorderBox):
+            return self._border_box(node, size_px)
         if isinstance(node, MathSup):
             return self._sup(node, size_px)
         if isinstance(node, MathSub):
@@ -257,6 +259,92 @@ class MathLayoutEngine:
                 "x1": line["x1"] + body_x,
                 "x2": line["x2"] + body_x,
             })
+        return out
+
+    def _border_box(self, node: MathBorderBox, size_px: float) -> MathBox:
+        body = self._layout(node.body, size_px)
+        padding_x = max(1.0, size_px * 0.20)
+        border_top = max(1.0, size_px * 0.20)
+        inner_top = max(1.0, size_px * 0.20)
+        inner_bottom = max(1.0, size_px * 0.16)
+        rule = max(1.0, size_px * 0.06)
+
+        ink_top = 0.0
+        ink_bottom = body.height
+        if body.texts:
+            bounds = []
+            for text in body.texts:
+                try:
+                    bbox = text["font"].getbbox(text["text"])
+                    bounds.append((
+                        text["y"] + bbox[1],
+                        text["y"] + bbox[3],
+                    ))
+                except Exception:
+                    bounds.append((text["y"], text["y"] + body.height))
+            ink_top = min(bound[0] for bound in bounds)
+            ink_bottom = max(bound[1] for bound in bounds)
+        if body.lines:
+            ink_top = min(
+                ink_top,
+                min(min(line["y1"], line["y2"]) for line in body.lines),
+            )
+            ink_bottom = max(
+                ink_bottom,
+                max(max(line["y1"], line["y2"]) for line in body.lines),
+            )
+
+        body_y = border_top + inner_top - ink_top
+        border_bottom = body_y + ink_bottom + inner_bottom
+        width = body.width + padding_x * 2.0
+        height = border_bottom
+        out = MathBox(
+            width=width,
+            height=height,
+            ascent=body.ascent + body_y,
+            descent=height - body.ascent - body_y,
+        )
+        for text in body.texts:
+            out.texts.append({
+                **text,
+                "x": text["x"] + padding_x,
+                "y": text["y"] + body_y,
+            })
+        for line in body.lines:
+            out.lines.append({
+                **line,
+                "x1": line["x1"] + padding_x,
+                "x2": line["x2"] + padding_x,
+                "y1": line["y1"] + body_y,
+                "y2": line["y2"] + body_y,
+            })
+
+        def add_line(x1: float, y1: float, x2: float, y2: float) -> None:
+            out.lines.append({
+                "x1": x1,
+                "y1": y1,
+                "x2": x2,
+                "y2": y2,
+                "width": rule,
+            })
+
+        if not node.hide_top:
+            add_line(0.0, border_top, width, border_top)
+        if not node.hide_bottom:
+            add_line(0.0, border_bottom, width, border_bottom)
+        if not node.hide_left:
+            add_line(0.0, border_top, 0.0, border_bottom)
+        if not node.hide_right:
+            add_line(width, border_top, width, border_bottom)
+        if node.strike_horizontal:
+            middle_y = (border_top + border_bottom) / 2.0
+            add_line(0.0, middle_y, width, middle_y)
+        if node.strike_vertical:
+            add_line(width / 2.0, border_top, width / 2.0, border_bottom)
+        if node.strike_bottom_left_top_right:
+            add_line(0.0, border_bottom, width, border_top)
+        if node.strike_top_left_bottom_right:
+            add_line(0.0, border_top, width, border_bottom)
         return out
 
     def _sup(self, node: MathSup, size_px: float) -> MathBox:

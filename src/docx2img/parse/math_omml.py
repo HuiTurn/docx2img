@@ -9,7 +9,7 @@ from typing import Optional, List
 from ..model.math_ast import (
     MathNode, MathChar, MathRunSeq, MathFrac, MathRad, MathSup, MathSub,
     MathSubSup, MathNary, MathDelim, MathMatrix, MathFunc, MathBar,
-    MathAccent,
+    MathAccent, MathBorderBox,
 )
 
 M = "http://schemas.openxmlformats.org/officeDocument/2006/math"
@@ -59,6 +59,29 @@ class OmmlParser:
                     "omml_acc_missing_body: m:acc has no renderable m:e"
                 )
             return MathAccent(body=body, char=char)
+        if tag == "borderBox":
+            props = elem.find(f"{{{M}}}borderBoxPr")
+            body = self._child(elem, "e")
+            if body is None:
+                logger.warning(
+                    "omml_border_box_missing_body: "
+                    "m:borderBox has no renderable m:e"
+                )
+            return MathBorderBox(
+                body=body,
+                hide_top=self._property_enabled(props, "hideTop"),
+                hide_bottom=self._property_enabled(props, "hideBot"),
+                hide_left=self._property_enabled(props, "hideLeft"),
+                hide_right=self._property_enabled(props, "hideRight"),
+                strike_horizontal=self._property_enabled(props, "strikeH"),
+                strike_vertical=self._property_enabled(props, "strikeV"),
+                strike_bottom_left_top_right=self._property_enabled(
+                    props, "strikeBLTR"
+                ),
+                strike_top_left_bottom_right=self._property_enabled(
+                    props, "strikeTLBR"
+                ),
+            )
         if tag == "sSup":
             return MathSup(base=self._child(elem, "e"), superscript=self._child(elem, "sup"))
         if tag == "sSub":
@@ -142,8 +165,8 @@ class OmmlParser:
         for child in elem:
             tag = child.tag.split("}")[-1]
             if tag in (
-                "rPr", "fPr", "radPr", "barPr", "accPr", "sSupPr", "sSubPr",
-                "naryPr", "dPr", "mPr", "ctrlPr",
+                "rPr", "fPr", "radPr", "barPr", "accPr", "borderBoxPr",
+                "sSupPr", "sSubPr", "naryPr", "dPr", "mPr", "ctrlPr",
             ):
                 continue
             node = self.parse_element(child)
@@ -158,6 +181,15 @@ class OmmlParser:
         if len(nodes) == 1:
             return nodes[0]
         return MathRunSeq(children=nodes)
+
+    def _property_enabled(self, parent, name: str) -> bool:
+        if parent is None:
+            return False
+        prop = parent.find(f"{{{M}}}{name}")
+        if prop is None:
+            return False
+        value = (prop.get(f"{{{M}}}val") or "1").lower()
+        return value not in ("0", "false", "off")
 
     def _text_of(self, node: Optional[MathNode]) -> str:
         if node is None:
