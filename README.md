@@ -53,7 +53,8 @@ and is **not** evidence of Word fidelity.
 
 Office corpus uses code-generated minimal fixtures under
 `testdata/regression/office-min/` (no third-party licensed DOCX required).
-Current office golden cases: `basic_text`, `date_field`, `drawingml_text`,
+Current office golden cases: `basic_text`, `body_sdt`, `date_field`,
+`drawingml_text`,
 `endnote`, `endnote_continuation`, `footnote`, `footnote_continuation`,
 `footnote_line_continuation`, `footnote_multiple_continuation`,
 `footnote_reflow`, `footnote_wrap_continuation`, `header_sdt`, `header_table`,
@@ -111,6 +112,15 @@ without `w:sdtContent` logs `header_footer_sdt_unsupported`. The `header_sdt`
 Word 16.0 golden (150 dpi, 1/1 page, exact size, deterministic) improves from
 MAE 0.276, RMSE 7.516, changed pixels 0.15%, SSIM 0.909247 to MAE 0.217,
 RMSE 6.652, changed pixels 0.13%, SSIM 0.981761.
+
+Block-level `w:sdt` controls in the document body now contribute their direct
+static paragraphs/tables from `w:sdtContent` to normal body flow while logging
+`body_sdt_fallback`. Controls without `w:sdtContent` log
+`body_sdt_unsupported`; data binding, control chrome, locking, placeholder
+state, and indirect wrapper types remain unsupported. The `body_sdt` Word 16.0
+golden (150 dpi, 1/1 page, exact size, deterministic) improves from MAE 0.084,
+RMSE 3.836, changed pixels 0.05%, SSIM 0.921701 to MAE 0.025, RMSE 1.594,
+changed pixels 0.03%, SSIM 0.999184.
 
 Basic paragraph-only footnotes now load `word/footnotes.xml`, retain
 `w:footnoteReference` in the run model, and render the referenced note at the

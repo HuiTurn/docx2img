@@ -8,7 +8,7 @@ Used exclusively by the **office** (Microsoft Word) golden provider:
 - generate: `python scripts/generate_office_golden.py --case basic_text`
 - compare: `python scripts/run_visual_regression.py --provider office --case basic_text`
 
-Cases are `basic_text`, `date_field`, `drawingml_text`, `endnote`,
+Cases are `basic_text`, `body_sdt`, `date_field`, `drawingml_text`, `endnote`,
 `endnote_continuation`, `footnote`, `footnote_continuation`,
 `footnote_line_continuation`, `footnote_multiple_continuation`,
 `footnote_reflow`, `footnote_wrap_continuation`, `header_sdt`, `header_table`,
@@ -33,6 +33,9 @@ nested/floating tables or images related from the header part.
 `header_sdt.docx` isolates a block-level header `w:sdt` whose
 `w:sdtContent` contains one styled paragraph. Control chrome, binding,
 locking, and placeholder state are outside this fixture.
+`body_sdt.docx` isolates the analogous block-level body `w:sdt`; indirect
+wrapper types and content-control appearance/semantics are outside the
+fixture.
 `endnote.docx` isolates one `w:endnoteReference` and one paragraph-only
 definition in `word/endnotes.xml`.
 `endnote_continuation.docx` isolates one 18-paragraph endnote that Word

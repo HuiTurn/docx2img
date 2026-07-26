@@ -2036,6 +2036,20 @@ Static-content fallback produces the same 1/1 page at 1241x1754, is
 byte-deterministic, and measures MAE 0.217, RMSE 6.652, changed pixels 0.13%,
 SSIM 0.981761 at 150 dpi.
 
+Document-body block-level `w:sdt` uses an analogous explicit fallback.
+`DocumentParser` appends direct paragraph/table children from `w:sdtContent`
+to the normal body sequence, recursively accepts nested SDTs, and retains
+paragraph section breaks. It logs `body_sdt_fallback`; a control without
+content logs `body_sdt_unsupported`. Control chrome, binding, locking,
+placeholder state, and indirect wrapper types are not modeled.
+
+The code-generated `body_sdt.docx` isolates one centered styled paragraph in a
+body content control. Unmodified `8721892` silently drops it and measures MAE
+0.084, RMSE 3.836, changed pixels 0.05%, SSIM 0.921701 against Word 16.0.
+Static-content fallback produces the same 1/1 page at 1241x1754, is
+byte-deterministic, and measures MAE 0.025, RMSE 1.594, changed pixels 0.03%,
+SSIM 0.999184 at 150 dpi.
+
 Basic footnote fidelity: `Unpacker` loads `word/footnotes.xml`;
 `DocumentParser` maps each non-negative `w:footnote` ID to paragraph IR and
 retains body `w:footnoteReference` IDs on their runs. After final pagination,

@@ -97,6 +97,8 @@ class DocumentParser:
                     table = self._parse_table(child)
                     if table:
                         model.body.append(table)
+                elif tag == 'sdt':
+                    self._parse_body_sdt(child, model)
                 elif tag == 'sectPr':
                     section = self._parse_section(child)
                     if section:
@@ -128,6 +130,29 @@ class DocumentParser:
 
         model.media = self.package.media
         return model
+
+    def _parse_body_sdt(self, elem, model: DocumentModel) -> None:
+        content = elem.find(f"{{{NS.W}}}sdtContent")
+        if content is None:
+            logger.warning("body_sdt_unsupported: no sdtContent")
+            return
+        logger.warning(
+            "body_sdt_fallback: rendered content without control appearance"
+        )
+        for child in content:
+            tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+            if tag == "p":
+                para = self._parse_paragraph(child)
+                if para:
+                    model.body.append(para)
+                    if para.section_break is not None:
+                        model.sections.append(para.section_break)
+            elif tag == "tbl":
+                table = self._parse_table(child)
+                if table:
+                    model.body.append(table)
+            elif tag == "sdt":
+                self._parse_body_sdt(child, model)
 
     def _parse_footnotes(self, model: DocumentModel) -> None:
         if not self.package.footnotes_xml:

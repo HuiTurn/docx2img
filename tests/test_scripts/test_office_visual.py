@@ -77,6 +77,7 @@ def test_office_cases_and_paths_isolated_from_libreoffice():
     assert "libreoffice" not in str(generate_office.GOLDEN_ROOT).replace("\\", "/")
     assert generate_office.GOLDEN_ROOT.name == "office"
     assert "basic_text" in generate_office.CASES
+    assert "body_sdt" in generate_office.CASES
     assert "date_field" in generate_office.CASES
     assert "drawingml_text" in generate_office.CASES
     assert "endnote" in generate_office.CASES
@@ -107,6 +108,18 @@ def test_page_break_fixture_is_deterministic(tmp_path):
     a = make_page_break(tmp_path / "page_break.docx")
     h1 = generate_office.sha256(a)
     b = make_page_break(tmp_path / "page_break.docx")
+    h2 = generate_office.sha256(b)
+    assert h1 == h2
+    assert a.stat().st_size > 1000
+
+
+def test_body_sdt_fixture_is_deterministic(tmp_path):
+    """The body content-control fixture must hash-stably regenerate."""
+    from fixtures.gen_fixtures import make_body_sdt
+
+    a = make_body_sdt(tmp_path / "body_sdt.docx")
+    h1 = generate_office.sha256(a)
+    b = make_body_sdt(tmp_path / "body_sdt.docx")
     h2 = generate_office.sha256(b)
     assert h1 == h2
     assert a.stat().st_size > 1000

@@ -7,6 +7,7 @@ from docx2img.config import Config
 from docx2img.unpack.unpacker import Unpacker
 from docx2img.parse.document import DocumentParser
 from docx2img.model.enums import Alignment
+from docx2img.model.document import DocumentModel
 from docx2img.model.paragraph import Paragraph
 from docx2img.parse.namespaces import NS
 from tests.fixtures.gen_fixtures import make_basic_text, make_tracked_changes
@@ -83,6 +84,22 @@ def test_parse_nested_revision_and_hyperlink_content():
     )
     breaks = [r.brk.break_type for r in para.runs if r.brk]
     assert breaks == ["page", "line"]
+
+
+def test_body_sdt_without_content_warns_instead_of_silent_skip(caplog):
+    path = make_basic_text(FIXTURES / "basic_text.docx")
+    package = Unpacker(path).unpack()
+    parser = DocumentParser(package, Config())
+    parser.parse()
+    model = DocumentModel()
+    sdt = ET.fromstring(
+        f'<w:sdt xmlns:w="{NS.W}"><w:sdtPr/></w:sdt>'
+    )
+
+    parser._parse_body_sdt(sdt, model)
+
+    assert model.body == []
+    assert "body_sdt_unsupported: no sdtContent" in caplog.text
 
 
 def test_parse_page_borders_with_independent_sides():
