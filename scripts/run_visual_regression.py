@@ -54,6 +54,7 @@ LO_CASES = {
 
 OFFICE_CASES = {
     "basic_text": "basic_text.docx",
+    "date_field": "date_field.docx",
     "drawingml_text": "drawingml_text.docx",
     "page_break": "page_break.docx",
     "shape_fill": "shape_fill.docx",
@@ -104,6 +105,7 @@ def _ensure_office_fixture(case: str, docx: Path) -> None:
         return
     from fixtures.gen_fixtures import (
         make_basic_text,
+        make_date_field,
         make_drawingml_text,
         make_page_break,
         make_shape_fill,
@@ -111,6 +113,7 @@ def _ensure_office_fixture(case: str, docx: Path) -> None:
 
     builders = {
         "basic_text": make_basic_text,
+        "date_field": make_date_field,
         "drawingml_text": make_drawingml_text,
         "page_break": make_page_break,
         "shape_fill": make_shape_fill,
@@ -155,6 +158,19 @@ def run_case(provider: str, case: str, max_pages: Optional[int]) -> dict:
 
     dpi = meta["dpi"]
     golden_pages = sorted(golden_dir.glob("page-*.png"))
+    reference_datetime = None
+    if meta.get("reference_datetime"):
+        from datetime import datetime
+
+        reference_datetime = datetime.fromisoformat(meta["reference_datetime"])
+    config_kwargs = {
+        "dpi": dpi,
+        "color_mode": "RGB",
+        "background_color": (255, 255, 255),
+    }
+    if reference_datetime is not None:
+        config_kwargs["reference_datetime"] = reference_datetime
+    render_config = Config(**config_kwargs)
 
     actual_dir = P["actual"] / case
     diff_dir = P["diff"] / case
@@ -183,13 +199,20 @@ def run_case(provider: str, case: str, max_pages: Optional[int]) -> dict:
         "word_version": meta.get("word_version"),
         "libreoffice_version": meta.get("libreoffice_version"),
         "baseline_policy": meta.get("baseline_note"),
+        "config": {
+            "reference_datetime": (
+                reference_datetime.isoformat()
+                if reference_datetime is not None
+                else Config().reference_datetime.isoformat()
+            )
+        },
     }
 
     t0 = time.time()
     try:
         images = convert_to_images(
             docx,
-            Config(dpi=dpi, color_mode="RGB", background_color=(255, 255, 255)),
+            render_config,
         )
     except Exception as exc:
         result["error"] = f"docx2img crashed: {type(exc).__name__}: {exc}"
@@ -204,7 +227,7 @@ def run_case(provider: str, case: str, max_pages: Optional[int]) -> dict:
     # Determinism: second render must be byte-identical PNG payloads.
     images2 = convert_to_images(
         docx,
-        Config(dpi=dpi, color_mode="RGB", background_color=(255, 255, 255)),
+        render_config,
     )
     det_ok = len(images) == len(images2)
     for i, (a, b) in enumerate(zip(images, images2)):
@@ -274,7 +297,7 @@ def run_case(provider: str, case: str, max_pages: Optional[int]) -> dict:
         result["status"] = "compared"
 
     try:
-        vr = validate_docx(docx, Config(dpi=dpi), max_pages=max_pages)
+        vr = validate_docx(docx, render_config, max_pages=max_pages)
         result["visual_validate"] = {
             "missing_glyphs": len(vr.missing_glyphs),
             "fallback_count": vr.fallback_count,

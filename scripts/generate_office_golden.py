@@ -39,6 +39,7 @@ GOLDEN_ROOT = REPO / "tests" / "golden" / "office"
 # Minimal code-generated fixtures (no external licensed corpus required).
 CASES = {
     "basic_text": "basic_text.docx",
+    "date_field": "date_field.docx",
     "drawingml_text": "drawingml_text.docx",
     "page_break": "page_break.docx",
     "shape_fill": "shape_fill.docx",
@@ -81,6 +82,7 @@ def ensure_fixture(case: str) -> Path:
     """Ensure the minimal office-min fixture exists (regenerate from builder)."""
     from fixtures.gen_fixtures import (
         make_basic_text,
+        make_date_field,
         make_drawingml_text,
         make_page_break,
         make_shape_fill,
@@ -88,6 +90,7 @@ def ensure_fixture(case: str) -> Path:
 
     builders = {
         "basic_text": make_basic_text,
+        "date_field": make_date_field,
         "drawingml_text": make_drawingml_text,
         "page_break": make_page_break,
         "shape_fill": make_shape_fill,
@@ -240,6 +243,14 @@ def generate_case(
 
     docx = ensure_fixture(case)
     actual_hash = sha256(docx)
+    reference_datetime = None
+    if case == "date_field":
+        reference_datetime = (
+            datetime.datetime.now()
+            .astimezone()
+            .replace(hour=0, minute=0, second=0, microsecond=0)
+            .isoformat()
+        )
 
     dest = GOLDEN_ROOT / case
     if dest.exists() and any(dest.glob("page-*.png")):
@@ -283,6 +294,7 @@ def generate_case(
         "dpi": dpi,
         "color_mode": "RGB",
         "background": [255, 255, 255],
+        "reference_datetime": reference_datetime,
         "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "pdf_pages": len(pages),
         "page_sizes_px": sizes,

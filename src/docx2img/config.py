@@ -1,6 +1,7 @@
 """Global configuration for docx2img"""
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Optional, List
 
 
@@ -15,6 +16,7 @@ class Config:
         default_font_east_asia: Default font for CJK characters
         color_mode: Output image mode ('RGB' or 'RGBA')
         background_color: Background color (R, G, B)
+        reference_datetime: Fixed time used for dynamic fields such as DATE
     """
     dpi: int = 150
     font_paths: List[str] = field(default_factory=list)
@@ -22,6 +24,7 @@ class Config:
     default_font_east_asia: str = "SimSun"
     color_mode: str = "RGB"
     background_color: tuple = (255, 255, 255)
+    reference_datetime: datetime = datetime(2000, 1, 1)
     
     # Unit conversion
     @property

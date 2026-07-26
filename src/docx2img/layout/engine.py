@@ -415,7 +415,10 @@ class LayoutEngine:
         for run in para.runs:
             if run.text and run.text.text:
                 run.text.text = HeaderFooterParser.expand_placeholders(
-                    run.text.text, page_num, total
+                    run.text.text,
+                    page_num,
+                    total,
+                    reference_datetime=self.config.reference_datetime,
                 )
 
     def _split_sections(self):

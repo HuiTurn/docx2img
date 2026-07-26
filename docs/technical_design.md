@@ -1257,7 +1257,7 @@ class HeaderFooterParser:
         elif instr == "NUMPAGES":
             return "{total_pages}"
         elif instr.startswith("DATE"):
-            return datetime.now().strftime("%Y-%m-%d")
+            return "{{DATE}}"  # expanded from Config.reference_datetime
         ...
 ```
 
@@ -1942,10 +1942,25 @@ tests/
 #
 # Office golden cases (Word 16.0, 150 dpi):
 #   basic_text  2/2 pages  MAE 2.16  SSIM 0.95
+#   date_field  1/1 page  MAE 0.308  SSIM 0.982710  diff% 0.159%
 #   drawingml_text  1/1 page  MAE 0.554  SSIM 0.889565  diff% 0.317%
 #   page_break  3/3 pages  MAE 0.565  SSIM 0.955725  diff% 0.284%
 #   shape_fill  1/1 pages  MAE 0.84  SSIM 0.97  diff% 0.6%
 ```
+
+DATE determinism: header/footer `w:fldSimple` and complex DATE fields are
+stored as `{{DATE}}` until page attachment. `LayoutEngine` expands the
+placeholder from `Config.reference_datetime`; its fixed default is
+`2000-01-01`, and callers must explicitly inject a current time when desired.
+The office provider stores `reference_datetime` in golden metadata and passes
+that exact value to both renderer/determinism passes. The one-page
+`date_field` fixture contains a stale `2000-01-01` cached field result; Word
+16.0 updates its read-only copy to `2026-07-26`. At 150 dpi the configured
+renderer is deterministic and matches page count/size with MAE 0.308, RMSE
+8.215, changed pixels 0.159%, and SSIM 0.982710. A controlled old-code run
+with the system clock advanced to `2099-12-31` measures MAE 0.323, RMSE 8.438,
+changed pixels 0.165%, and SSIM 0.980758, demonstrating the eliminated
+clock-dependent drift.
 
 Manual page break fidelity: a paragraph whose only content is `w:br
 w:type="page"` keeps its mark-line height and trailing paragraph spacing

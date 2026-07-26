@@ -14,6 +14,7 @@ from .namespaces import NS
 FIELD_PAGE = "{{PAGE}}"
 FIELD_NUMPAGES = "{{NUMPAGES}}"
 FIELD_DATE = "{{DATE}}"
+DEFAULT_REFERENCE_DATETIME = datetime(2000, 1, 1)
 
 
 class HeaderFooterParser:
@@ -97,7 +98,11 @@ class HeaderFooterParser:
             i += 1
 
     @staticmethod
-    def resolve_field_instr(instr: str, as_placeholder: bool = False) -> str:
+    def resolve_field_instr(
+        instr: str,
+        as_placeholder: bool = False,
+        reference_datetime: Optional[datetime] = None,
+    ) -> str:
         cleaned = re.sub(r"\s+", " ", (instr or "").strip()).upper()
         # Strip quotes / switches
         token = cleaned.split(" ")[0] if cleaned else ""
@@ -106,13 +111,22 @@ class HeaderFooterParser:
         if token == "NUMPAGES":
             return FIELD_NUMPAGES if as_placeholder else ""
         if token == "DATE":
-            return datetime.now().strftime("%Y-%m-%d")
+            if as_placeholder:
+                return FIELD_DATE
+            reference = reference_datetime or DEFAULT_REFERENCE_DATETIME
+            return reference.strftime("%Y-%m-%d")
         return ""
 
     @staticmethod
-    def expand_placeholders(text: str, page_num: int, total_pages: int) -> str:
+    def expand_placeholders(
+        text: str,
+        page_num: int,
+        total_pages: int,
+        reference_datetime: Optional[datetime] = None,
+    ) -> str:
+        reference = reference_datetime or DEFAULT_REFERENCE_DATETIME
         return (
             text.replace(FIELD_PAGE, str(page_num))
             .replace(FIELD_NUMPAGES, str(total_pages))
-            .replace(FIELD_DATE, datetime.now().strftime("%Y-%m-%d"))
+            .replace(FIELD_DATE, reference.strftime("%Y-%m-%d"))
         )

@@ -77,6 +77,7 @@ def test_office_cases_and_paths_isolated_from_libreoffice():
     assert "libreoffice" not in str(generate_office.GOLDEN_ROOT).replace("\\", "/")
     assert generate_office.GOLDEN_ROOT.name == "office"
     assert "basic_text" in generate_office.CASES
+    assert "date_field" in generate_office.CASES
     assert "drawingml_text" in generate_office.CASES
     assert "page_break" in generate_office.CASES
     assert "shape_fill" in generate_office.CASES
@@ -113,6 +114,18 @@ def test_drawingml_text_fixture_is_deterministic(tmp_path):
     a = make_drawingml_text(tmp_path / "drawingml_text.docx")
     h1 = generate_office.sha256(a)
     b = make_drawingml_text(tmp_path / "drawingml_text.docx")
+    h2 = generate_office.sha256(b)
+    assert h1 == h2
+    assert a.stat().st_size > 1000
+
+
+def test_date_field_fixture_is_deterministic(tmp_path):
+    """The DATE source keeps a stale fixed cache; Word updates only its copy."""
+    from fixtures.gen_fixtures import make_date_field
+
+    a = make_date_field(tmp_path / "date_field.docx")
+    h1 = generate_office.sha256(a)
+    b = make_date_field(tmp_path / "date_field.docx")
     h2 = generate_office.sha256(b)
     assert h1 == h2
     assert a.stat().st_size > 1000

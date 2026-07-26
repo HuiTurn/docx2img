@@ -53,13 +53,21 @@ and is **not** evidence of Word fidelity.
 
 Office corpus uses code-generated minimal fixtures under
 `testdata/regression/office-min/` (no third-party licensed DOCX required).
-Current office golden cases: `basic_text`, `drawingml_text`, `page_break`,
-`shape_fill`. Word COM / Poppler `pdftoppm` are **dev-only**;
+Current office golden cases: `basic_text`, `date_field`, `drawingml_text`,
+`page_break`, `shape_fill`. Word COM / Poppler `pdftoppm` are **dev-only**;
 `src/docx2img` must never import Office. First office golden introduction
 records baseline metrics without a global MAE/SSIM pass threshold; later
 slices must improve the target case and not regress existing office goldens.
 Paragraph `auto` line spacing follows Word (`natural × line/240`), not the
 older LibreOffice-oriented floor-only formula.
+
+DATE fields in headers and footers no longer read the system clock.
+`Config.reference_datetime` supplies the fixed evaluation time and defaults
+to `2000-01-01`, so identical input and configuration stay deterministic
+across calendar days. The `date_field` Word 16.0 golden records its reference
+time in metadata and reuses it for both renderer passes (150 dpi, 1/1 page,
+exact size): MAE 0.308, RMSE 8.215, changed pixels 0.159%, SSIM 0.982710.
+Callers that want “today” must pass that time explicitly.
 
 Manual page breaks (`w:br w:type="page"`) preserve the invisible paragraph
 mark and its trailing paragraph spacing during page-fit checks. When that
