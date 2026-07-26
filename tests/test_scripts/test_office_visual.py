@@ -79,6 +79,7 @@ def test_office_cases_and_paths_isolated_from_libreoffice():
     assert "basic_text" in generate_office.CASES
     assert "date_field" in generate_office.CASES
     assert "drawingml_text" in generate_office.CASES
+    assert "footnote" in generate_office.CASES
     assert "math_accent" in generate_office.CASES
     assert "math_bar" in generate_office.CASES
     assert "math_border_box" in generate_office.CASES
@@ -119,6 +120,18 @@ def test_drawingml_text_fixture_is_deterministic(tmp_path):
     a = make_drawingml_text(tmp_path / "drawingml_text.docx")
     h1 = generate_office.sha256(a)
     b = make_drawingml_text(tmp_path / "drawingml_text.docx")
+    h2 = generate_office.sha256(b)
+    assert h1 == h2
+    assert a.stat().st_size > 1000
+
+
+def test_footnote_fixture_is_deterministic(tmp_path):
+    """The basic footnote office fixture must hash-stably regenerate."""
+    from fixtures.gen_fixtures import make_footnote
+
+    a = make_footnote(tmp_path / "footnote.docx")
+    h1 = generate_office.sha256(a)
+    b = make_footnote(tmp_path / "footnote.docx")
     h2 = generate_office.sha256(b)
     assert h1 == h2
     assert a.stat().st_size > 1000

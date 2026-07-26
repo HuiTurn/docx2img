@@ -1,5 +1,6 @@
 """Main document parser - Parses document.xml to IR"""
 
+import logging
 import xml.etree.ElementTree as ET
 from typing import Optional, Dict, List
 from pathlib import Path
@@ -25,6 +26,8 @@ from .header_footer import HeaderFooterParser
 from .numbering import NumberingParser
 from .math_omml import OmmlParser
 from .namespaces import NS, M
+
+logger = logging.getLogger(__name__)
 
 
 class DocumentParser:
@@ -102,6 +105,8 @@ class DocumentParser:
         if not model.sections:
             model.sections.append(Section())
 
+        self._parse_footnotes(model)
+
         # Parse header/footer XML for each section
         hf_parser = HeaderFooterParser(self._parse_paragraph)
         for section in model.sections:
@@ -119,6 +124,65 @@ class DocumentParser:
 
         model.media = self.package.media
         return model
+
+    def _parse_footnotes(self, model: DocumentModel) -> None:
+        if not self.package.footnotes_xml:
+            return
+        try:
+            root = ET.fromstring(self.package.footnotes_xml)
+        except ET.ParseError as exc:
+            logger.warning("footnotes_malformed_xml: %s", exc)
+            return
+        for note in root.findall(f"{{{NS.W}}}footnote"):
+            note_id = note.get(f"{{{NS.W}}}id")
+            if note_id is None:
+                continue
+            try:
+                if int(note_id) < 0:
+                    continue
+            except ValueError:
+                logger.warning("footnote_invalid_id: %s", note_id)
+                continue
+            paragraphs = []
+            for child in note:
+                tag = child.tag.split("}")[-1]
+                if tag == "p":
+                    paragraph = self._parse_paragraph(child)
+                    if paragraph is not None:
+                        paragraphs.append(paragraph)
+                elif tag == "tbl":
+                    logger.warning(
+                        "footnote_unsupported_table: footnote %s table omitted",
+                        note_id,
+                    )
+            if paragraphs:
+                marker_props = RunProps(
+                    font_size=10.0,
+                    vertical_align="superscript",
+                    position_offset=-3.0,
+                )
+                paragraphs[0].runs.insert(
+                    0,
+                    Run(
+                        text=TextRun(note_id, marker_props),
+                        footnote_id=note_id,
+                    ),
+                )
+            model.footnotes[note_id] = paragraphs
+
+        referenced = {
+            run.footnote_id
+            for paragraph in model.body
+            if isinstance(paragraph, Paragraph)
+            for run in paragraph.runs
+            if run.footnote_id is not None
+        }
+        for note_id in sorted(referenced):
+            if note_id not in model.footnotes:
+                logger.warning(
+                    "footnote_missing_definition: reference %s has no definition",
+                    note_id,
+                )
 
     def _parse_paragraph(self, elem) -> Optional[Paragraph]:
         """Parse w:p element to Paragraph with style resolution."""
@@ -391,6 +455,19 @@ class DocumentParser:
             )
         else:
             run_props = direct
+
+        footnote_ref = elem.find(f"{{{NS.W}}}footnoteReference")
+        if footnote_ref is not None:
+            note_id = footnote_ref.get(f"{{{NS.W}}}id")
+            if note_id is not None:
+                run_props.vertical_align = "superscript"
+                # Word scales the reference glyph as superscript but keeps it
+                # close to the text cap height; compensate for the generic
+                # superscript baseline used by the layout engine.
+                run_props.position_offset -= 3.0
+                run.text = TextRun(text=note_id, props=run_props)
+                run.footnote_id = note_id
+                return run
 
         texts = []
         for t_elem in elem.findall(f"{{{NS.W}}}t"):

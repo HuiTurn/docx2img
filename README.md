@@ -54,8 +54,8 @@ and is **not** evidence of Word fidelity.
 Office corpus uses code-generated minimal fixtures under
 `testdata/regression/office-min/` (no third-party licensed DOCX required).
 Current office golden cases: `basic_text`, `date_field`, `drawingml_text`,
-`math_accent`, `math_bar`, `math_border_box`, `math_eq_arr`, `math_limit`,
-`page_break`, `shape_fill`. Word COM / Poppler `pdftoppm` are
+`footnote`, `math_accent`, `math_bar`, `math_border_box`, `math_eq_arr`,
+`math_limit`, `page_break`, `shape_fill`. Word COM / Poppler `pdftoppm` are
 **dev-only**;
 `src/docx2img` must never import Office. First office golden introduction
 records baseline metrics without a global MAE/SSIM pass threshold; later
@@ -70,6 +70,18 @@ across calendar days. The `date_field` Word 16.0 golden records its reference
 time in metadata and reuses it for both renderer passes (150 dpi, 1/1 page,
 exact size): MAE 0.308, RMSE 8.215, changed pixels 0.159%, SSIM 0.982710.
 Callers that want “today” must pass that time explicitly.
+
+Basic paragraph-only footnotes now load `word/footnotes.xml`, retain
+`w:footnoteReference` in the run model, and render the referenced note at the
+bottom of its page with Word's short separator. Missing definitions,
+malformed footnote XML, unsupported footnote tables, invalid IDs and body /
+footnote overlap emit stable `footnote_*` warnings instead of disappearing
+silently. The one-reference `footnote` Word 16.0 golden (150 dpi, 1/1 page,
+exact size, deterministic) improves from MAE 0.196, RMSE 6.927, changed
+pixels 0.083%, SSIM 0.887690 to MAE 0.138, RMSE 5.524, changed pixels
+0.070%, SSIM 0.990319. Multi-paragraph notes are stacked, but pagination
+reservation, continuation across pages, tables, custom numbering and
+section-specific separator definitions remain unsupported or approximate.
 
 OMML `m:bar` now has native `MathBar` AST and top/bottom rule layout instead
 of losing the bar while flattening its body. The isolated `math_bar` Word

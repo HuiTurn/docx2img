@@ -1,5 +1,6 @@
 """Layout engine - Converts IR to layout tree with pages"""
 
+import logging
 from dataclasses import dataclass, field
 from typing import List, Any, Optional, Tuple
 
@@ -21,6 +22,8 @@ from ..model.enums import Alignment
 from ..parse.units import Units
 from io import BytesIO
 from PIL import Image as PILImage
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -74,6 +77,8 @@ class PageBox:
     blocks: List[BlockBox] = field(default_factory=list)
     header_blocks: List[BlockBox] = field(default_factory=list)
     footer_blocks: List[BlockBox] = field(default_factory=list)
+    footnote_blocks: List[BlockBox] = field(default_factory=list)
+    footnote_separator: Optional[Tuple[float, float, float, int]] = None
     float_boxes: List[Any] = field(default_factory=list)
     textbox_boxes: List[Any] = field(default_factory=list)
     width: float = 0.0
@@ -170,6 +175,7 @@ class LayoutEngine:
             page.header_blocks.clear()
             page.footer_blocks.clear()
         self._stamp_and_attach_pages(all_pages)
+        self._attach_footnotes(all_pages)
 
         return all_pages if all_pages else [PageBox(width=595, height=842)]
 
@@ -198,6 +204,88 @@ class LayoutEngine:
             page.section_page_index = section_page_index
             self._attach_header_footer(page, section_page_index, total)
             previous_section = section
+
+    def _attach_footnotes(self, pages: List[PageBox]) -> None:
+        """Attach the basic paragraph-only footnote subset to each page.
+
+        Footnote references are associated with the page containing their body
+        paragraph. Notes are stacked above the bottom margin with a short
+        separator. Pagination reservation and continuation are deliberately
+        left to a later slice; overlap is surfaced as a structured warning.
+        """
+        px_per_pt = self.config.px_per_pt
+        separator_gap = 7.5 * px_per_pt
+        separator_width = 144.0 * px_per_pt
+        separator_stroke = max(1, round(0.75 * px_per_pt))
+        note_bottom_offset = 4.0 * px_per_pt
+
+        for page in pages:
+            page.footnote_blocks.clear()
+            page.footnote_separator = None
+
+            note_ids: List[str] = []
+            seen = set()
+            for block in page.blocks:
+                paragraph = block.element
+                if not isinstance(paragraph, Paragraph):
+                    continue
+                for run in paragraph.runs:
+                    note_id = run.footnote_id
+                    if note_id is not None and note_id not in seen:
+                        seen.add(note_id)
+                        note_ids.append(note_id)
+
+            if not note_ids:
+                continue
+
+            content_width = page.width - page.margin_left - page.margin_right
+            note_blocks: List[BlockBox] = []
+            for note_id in note_ids:
+                for paragraph in self.document.footnotes.get(note_id, []):
+                    note_blocks.extend(
+                        self._layout_paragraph(
+                            paragraph,
+                            page.margin_left,
+                            content_width,
+                            px_per_pt,
+                            apply_doc_grid=False,
+                        )
+                    )
+
+            if not note_blocks:
+                continue
+
+            total_height = sum(block.height for block in note_blocks)
+            note_top = (
+                page.height
+                - page.margin_bottom
+                - total_height
+                + note_bottom_offset
+            )
+            separator_y = note_top - separator_gap
+            body_bottom = self._page_content_bottom(page)
+            if separator_y < body_bottom:
+                logger.warning(
+                    "footnote_layout_overlap: page %s body bottom %.2f exceeds "
+                    "footnote separator %.2f",
+                    page.page_number,
+                    body_bottom,
+                    separator_y,
+                )
+
+            y = note_top
+            for block in note_blocks:
+                block.y = y
+                self._finalize_block_coords(block)
+                page.footnote_blocks.append(block)
+                y += block.height
+
+            page.footnote_separator = (
+                page.margin_left,
+                separator_y,
+                page.margin_left + min(content_width, separator_width),
+                separator_stroke,
+            )
 
     @staticmethod
     def _block_has_ink(block: BlockBox) -> bool:

@@ -1944,6 +1944,7 @@ tests/
 #   basic_text  2/2 pages  MAE 2.16  SSIM 0.95
 #   date_field  1/1 page  MAE 0.308  SSIM 0.982710  diff% 0.159%
 #   drawingml_text  1/1 page  MAE 0.554  SSIM 0.889565  diff% 0.317%
+#   footnote  1/1 page  MAE 0.138  SSIM 0.990319  diff% 0.070%
 #   math_accent  1/1 page  MAE 0.010  SSIM 0.999180  diff% ~0.006%
 #   math_bar  1/1 page  MAE 0.013  SSIM 0.998945  diff% ~0.006%
 #   math_border_box  1/1 page  MAE 0.013  SSIM 0.997239  diff% ~0.007%
@@ -1966,6 +1967,26 @@ renderer is deterministic and matches page count/size with MAE 0.308, RMSE
 with the system clock advanced to `2099-12-31` measures MAE 0.323, RMSE 8.438,
 changed pixels 0.165%, and SSIM 0.980758, demonstrating the eliminated
 clock-dependent drift.
+
+Basic footnote fidelity: `Unpacker` loads `word/footnotes.xml`;
+`DocumentParser` maps each non-negative `w:footnote` ID to paragraph IR and
+retains body `w:footnoteReference` IDs on their runs. After final pagination,
+`LayoutEngine` associates references with their physical page, stacks the
+referenced paragraphs immediately above the bottom margin, and exposes a
+short separator plus note blocks to `RenderCanvas`. A missing definition
+logs `footnote_missing_definition`; malformed XML, invalid IDs, tables in a
+note and body/note overlap log `footnotes_malformed_xml`,
+`footnote_invalid_id`, `footnote_unsupported_table` and
+`footnote_layout_overlap` respectively without crashing.
+
+The code-generated `footnote.docx` isolates one styled reference and one
+plain-text note. Against Word 16.0 at 150 dpi it renders 1/1 page at the exact
+1241x1754 reference size and is byte-deterministic. Relative to unmodified
+`e6ab11f`, MAE improves 0.196 to 0.138, RMSE 6.927 to 5.524, changed pixels
+0.083% to 0.070%, and SSIM 0.887690 to 0.990319. This remains a basic
+paragraph-only path: layout does not yet reserve note height during body
+pagination or continue oversized notes, and note tables, custom numbering,
+section separator content and endnotes are not claimed supported.
 
 OMML bar fidelity: `m:bar` maps to a native `MathBar` AST containing its body
 and top/bottom `m:pos`. `MathLayoutEngine` retains the body metrics and emits

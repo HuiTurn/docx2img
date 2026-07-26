@@ -1,0 +1,30 @@
+{
+  "provider": "office",
+  "case": "footnote",
+  "input_docx": "footnote.docx",
+  "input_path": "testdata/regression/office-min/footnote.docx",
+  "input_sha256": "df4dfd8a08cb26cf87a7a2c826ff2581354262e35b93689f34354fba69668c63",
+  "word_version": "16.0",
+  "pdftoppm_version": "pdftoppm version 24.04.0",
+  "platform": "Windows-10-10.0.26200-SP0",
+  "python_version": "3.10.10",
+  "docx2img_version": "0.1.0",
+  "dpi": 150,
+  "color_mode": "RGB",
+  "background": [
+    255,
+    255,
+    255
+  ],
+  "reference_datetime": null,
+  "generated_at": "2026-07-26T11:02:48.203981+00:00",
+  "pdf_pages": 1,
+  "page_sizes_px": [
+    [
+      1241,
+      1754
+    ]
+  ],
+  "fonts_note": "Word used the host font environment; substitutions are not individually traced by ExportAsFixedFormat.",
+  "baseline_note": "First-introduction baseline: no global MAE/SSIM pass threshold. Subsequent slices must improve the target case without regressing existing office goldens."
+}

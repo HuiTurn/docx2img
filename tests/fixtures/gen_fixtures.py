@@ -314,6 +314,7 @@ def write_docx(
     extra_rels: Optional[list] = None,
     headers: Optional[dict] = None,
     footers: Optional[dict] = None,
+    footnotes_xml: Optional[str] = None,
     numbering_xml: Optional[str] = None,
 ) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -334,6 +335,22 @@ def write_docx(
             "</Types>",
             '<Override PartName="/word/numbering.xml" '
             'ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>'
+            "</Types>",
+        )
+    if footnotes_xml:
+        extras.append(
+            '<Relationship Id="rIdFootnotes" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes" '
+            'Target="footnotes.xml"/>'
+        )
+        rels = DOC_RELS.replace(
+            "</Relationships>", "".join(extras) + "</Relationships>"
+        )
+        ct = ct.replace(
+            "</Types>",
+            '<Override PartName="/word/footnotes.xml" '
+            'ContentType="application/vnd.openxmlformats-officedocument.'
+            'wordprocessingml.footnotes+xml"/>'
             "</Types>",
         )
     if headers:
@@ -366,6 +383,8 @@ def write_docx(
     }
     if numbering_xml:
         members["word/numbering.xml"] = numbering_xml
+    if footnotes_xml:
+        members["word/footnotes.xml"] = footnotes_xml
     for name, data in (media or {}).items():
         members[f"word/media/{name}"] = data
     for name, data in (headers or {}).items():
@@ -1316,6 +1335,40 @@ def make_math_eq_arr(path: Path) -> Path:
     return write_docx(path, _document(body))
 
 
+def make_footnote(path: Path) -> Path:
+    """One body reference and one plain-text footnote definition."""
+    body = (
+        _para(
+            _run("Body text", bare=True)
+            + '<w:r><w:rPr><w:vertAlign w:val="superscript"/>'
+            '<w:sz w:val="20"/></w:rPr>'
+            '<w:footnoteReference w:id="1"/></w:r>'
+        )
+        + _sect_pr()
+    )
+    footnotes = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        f'<w:footnotes xmlns:w="{NS_W}">'
+        '<w:footnote w:type="separator" w:id="-1"><w:p><w:r>'
+        '<w:separator/></w:r></w:p></w:footnote>'
+        '<w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:r>'
+        '<w:continuationSeparator/></w:r></w:p></w:footnote>'
+        '<w:footnote w:id="1"><w:p>'
+        '<w:r><w:rPr><w:vertAlign w:val="superscript"/>'
+        '<w:sz w:val="20"/></w:rPr><w:footnoteRef/></w:r>'
+        '<w:r><w:tab/></w:r>'
+        '<w:r><w:rPr><w:sz w:val="20"/></w:rPr>'
+        '<w:t>Footnote text.</w:t></w:r>'
+        '</w:p></w:footnote>'
+        '</w:footnotes>'
+    )
+    return write_docx(
+        path,
+        _document(body),
+        footnotes_xml=footnotes,
+    )
+
+
 if __name__ == "__main__":
     out = Path(__file__).parent
     make_basic_text(out / "basic_text.docx")
@@ -1342,4 +1395,5 @@ if __name__ == "__main__":
     make_math_border_box(out / "math_border_box.docx")
     make_math_limit(out / "math_limit.docx")
     make_math_eq_arr(out / "math_eq_arr.docx")
+    make_footnote(out / "footnote.docx")
     print("Fixtures written to", out)
