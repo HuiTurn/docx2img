@@ -1942,7 +1942,7 @@ tests/
 #
 # Office golden cases (Word 16.0, 150 dpi):
 #   basic_text  2/2 pages  MAE 2.16  SSIM 0.95
-#   page_break  3/3 pages  MAE 0.562  SSIM 0.957358  diff% 0.283%
+#   page_break  3/3 pages  MAE 0.565  SSIM 0.955725  diff% 0.284%
 #   shape_fill  1/1 pages  MAE 0.84  SSIM 0.97  diff% 0.6%
 ```
 
@@ -1952,8 +1952,8 @@ during page-fit checks. When their combined box overflows a full page, the
 invisible paragraph lands alone on the next page — reproducing the blank
 intermediate page Word emits before the break fires. Verified by the
 `page_break` office golden (3/3 pages and sizes, deterministic, blank page 2
-pixel-identical in docx2img and Word; mean MAE 0.562, SSIM 0.957358, changed
-pixels 0.283% at 150 dpi). Spilled real content on that page (Word behaviour
+pixel-identical in docx2img and Word; mean MAE 0.565, SSIM 0.955725, changed
+pixels 0.284% at 150 dpi). Spilled real content on that page (Word behaviour
 when the page is not exactly full) is likewise preserved instead of forcing a
 blank.
 

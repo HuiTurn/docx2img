@@ -67,7 +67,7 @@ break-only paragraph crosses the page boundary, it moves to a blank
 intermediate page before the break starts the following content on the next
 page. The `page_break` office case now matches Word 16.0 at 3/3 pages and
 identical page sizes (150 dpi): blank page 2 is pixel-identical, mean MAE
-0.562, SSIM 0.957358, and changed-pixel ratio 0.283%. No global visual pass
+0.565, SSIM 0.955725, and changed-pixel ratio 0.284%. No global visual pass
 threshold is implied.
 
 Standalone DrawingML text boxes and autoshapes (`wps:wsp`/`w:txbxContent`
