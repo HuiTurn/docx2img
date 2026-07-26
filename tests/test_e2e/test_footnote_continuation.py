@@ -45,7 +45,7 @@ def test_long_footnote_render_is_deterministic(tmp_path):
     assert all(a.tobytes() == b.tobytes() for a, b in zip(first, second))
 
 
-def test_multiple_oversized_footnotes_warn_instead_of_silent_drop(
+def test_multiple_oversized_footnotes_continue_without_silent_drop(
     tmp_path, caplog
 ):
     docx = make_footnote_continuation(
@@ -59,6 +59,7 @@ def test_multiple_oversized_footnotes_warn_instead_of_silent_drop(
     with caplog.at_level(logging.WARNING):
         pages = LayoutEngine(model, config).layout()
 
-    assert pages[0].footnote_blocks
-    assert "footnote_continuation_multiple_notes" in caplog.text
-    assert "footnote_layout_overlap" in caplog.text
+    assert len(pages) > 1
+    assert sum(len(page.footnote_blocks) for page in pages) == 36
+    assert "footnote_continuation_multiple_notes" not in caplog.text
+    assert "footnote_layout_overlap" not in caplog.text

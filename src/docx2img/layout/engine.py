@@ -83,6 +83,7 @@ class PageBox:
         default_factory=dict
     )
     footnote_continuation: bool = False
+    footnote_multiple: bool = False
     endnote_blocks: List[BlockBox] = field(default_factory=list)
     endnote_separator: Optional[Tuple[float, float, float, int]] = None
     endnote_paragraph_overrides: List[Paragraph] = field(default_factory=list)
@@ -271,12 +272,19 @@ class LayoutEngine:
 
             content_width = page.width - page.margin_left - page.margin_right
             note_blocks: List[BlockBox] = []
-            note_block_groups: List[List[BlockBox]] = []
+            note_block_groups: List[Tuple[int, List[BlockBox]]] = []
             for note_id in note_ids:
-                paragraphs = page.footnote_paragraph_overrides.get(
-                    note_id,
-                    self.document.footnotes.get(note_id, []),
-                )
+                definition = self.document.footnotes.get(note_id, [])
+                paragraph_indexes = {
+                    id(paragraph): index
+                    for index, paragraph in enumerate(definition)
+                }
+                if page.footnote_paragraph_overrides:
+                    paragraphs = page.footnote_paragraph_overrides.get(
+                        note_id, []
+                    )
+                else:
+                    paragraphs = definition
                 for paragraph in paragraphs:
                     blocks = self._layout_paragraph(
                         paragraph,
@@ -286,26 +294,44 @@ class LayoutEngine:
                         apply_doc_grid=False,
                     )
                     note_blocks.extend(blocks)
-                    note_block_groups.append(blocks)
+                    note_block_groups.append(
+                        (
+                            paragraph_indexes.get(id(paragraph), -1),
+                            blocks,
+                        )
+                    )
 
             if not note_blocks:
                 continue
 
-            paragraph_gap_pt = (
-                (4.0 / 3.0) if page.footnote_continuation else 1.0
+            paragraph_gap = (4.0 / 3.0) * px_per_pt
+            marker_gap = -1.5 * px_per_pt
+            single_note_gap = (
+                (4.0 / 3.0 if page.footnote_continuation else 1.0)
+                * px_per_pt
             )
-            paragraph_gap = (
-                paragraph_gap_pt * px_per_pt
-                if len(note_block_groups) > 1
-                else 0.0
-            )
+            multiple_notes = page.footnote_multiple or len(note_ids) > 1
+
+            def gap_after(paragraph_index):
+                if not multiple_notes:
+                    return single_note_gap
+                return (
+                    marker_gap if paragraph_index == 0 else paragraph_gap
+                )
+
             effective_bottom_offset = (
-                0.0 if paragraph_gap else note_bottom_offset
+                1.0 * px_per_pt
+                if len(note_ids) > 1
+                else (
+                    note_bottom_offset
+                    if len(note_block_groups) == 1
+                    else 0.0
+                )
             )
-            total_height = (
-                sum(block.height for block in note_blocks)
-                + paragraph_gap * max(0, len(note_block_groups) - 1)
-            )
+            total_height = sum(block.height for block in note_blocks)
+            for group_index in range(len(note_block_groups) - 1):
+                paragraph_index, _ = note_block_groups[group_index]
+                total_height += gap_after(paragraph_index)
             note_top = (
                 page.height
                 - page.margin_bottom
@@ -324,14 +350,16 @@ class LayoutEngine:
                 )
 
             y = note_top
-            for group_index, group in enumerate(note_block_groups):
+            for group_index, (paragraph_index, group) in enumerate(
+                note_block_groups
+            ):
                 for block in group:
                     block.y = y
                     self._finalize_block_coords(block)
                     page.footnote_blocks.append(block)
                     y += block.height
                 if group_index + 1 < len(note_block_groups):
-                    y += paragraph_gap
+                    y += gap_after(paragraph_index)
 
             page.footnote_separator = (
                 page.margin_left,
@@ -345,12 +373,14 @@ class LayoutEngine:
             )
 
     def _paginate_oversized_footnotes(self, pages: List[PageBox]) -> bool:
-        """Split one multi-paragraph footnote across continuation pages."""
+        """Split one or more multi-paragraph footnotes across pages."""
         changed = False
         px_per_pt = self.config.px_per_pt
         separator_gap = 7.5 * px_per_pt
         note_bottom_offset = 4.0 * px_per_pt
-        paragraph_gap = 1.0 * px_per_pt
+        single_note_gap = 1.0 * px_per_pt
+        paragraph_gap = (4.0 / 3.0) * px_per_pt
+        marker_gap = -1.5 * px_per_pt
         continuation_gap = (4.0 / 3.0) * px_per_pt
         page_index = 0
 
@@ -373,14 +403,11 @@ class LayoutEngine:
                 continue
 
             content_width = page.width - page.margin_left - page.margin_right
-            measured: Dict[str, List[Tuple[Paragraph, float]]] = {}
-            first_capacities: Dict[str, float] = {}
-            paragraph_gaps: Dict[str, float] = {}
-            oversized = []
-            body_bottom = self._page_content_bottom(page)
+            measured = []
             for note_id in note_ids:
-                paragraph_sizes = []
-                for paragraph in self.document.footnotes.get(note_id, []):
+                for paragraph_index, paragraph in enumerate(
+                    self.document.footnotes.get(note_id, [])
+                ):
                     blocks = self._layout_paragraph(
                         paragraph,
                         page.margin_left,
@@ -388,66 +415,50 @@ class LayoutEngine:
                         px_per_pt,
                         apply_doc_grid=False,
                     )
-                    paragraph_sizes.append(
-                        (paragraph, sum(block.height for block in blocks))
+                    measured.append(
+                        (
+                            note_id,
+                            paragraph_index,
+                            paragraph,
+                            sum(block.height for block in blocks),
+                        )
                     )
-                measured[note_id] = paragraph_sizes
-                gap = paragraph_gap if len(paragraph_sizes) > 1 else 0.0
-                bottom_offset = (
-                    0.0 if len(paragraph_sizes) > 1 else note_bottom_offset
-                )
-                first_capacity = max(
-                    0.0,
-                    page.height
-                    - page.margin_bottom
-                    + bottom_offset
-                    - separator_gap
-                    - body_bottom,
-                )
-                first_capacities[note_id] = first_capacity
-                paragraph_gaps[note_id] = gap
-                total_height = sum(
-                    height for _, height in paragraph_sizes
-                ) + gap * max(0, len(paragraph_sizes) - 1)
-                if total_height > first_capacity + 0.5:
-                    oversized.append(note_id)
-
-            if not oversized:
-                page_index += 1
-                continue
-            if len(note_ids) != 1:
-                paragraph_count = sum(
-                    len(measured[note_id]) for note_id in note_ids
-                )
-                total_height = sum(
-                    height
-                    for note_id in note_ids
-                    for _, height in measured[note_id]
-                )
-                if paragraph_count > 1:
-                    total_height += paragraph_gap * (paragraph_count - 1)
-                full_page_capacity = max(
-                    0.0,
-                    page.height
-                    - page.margin_bottom
-                    - separator_gap
-                    - page.margin_top,
-                )
-                if total_height > full_page_capacity + 0.5:
-                    logger.warning(
-                        "footnote_continuation_multiple_notes: page %s has "
-                        "%s notes and cannot be split safely",
-                        page.page_number,
-                        len(note_ids),
-                    )
+            if not measured:
                 page_index += 1
                 continue
 
-            note_id = note_ids[0]
-            remaining = measured[note_id]
-            first_capacity = first_capacities[note_id]
-            gap = paragraph_gaps[note_id]
-            bottom_offset = 0.0 if len(remaining) > 1 else note_bottom_offset
+            if len(note_ids) > 1:
+                bottom_offset = 1.0 * px_per_pt
+            elif len(measured) == 1:
+                bottom_offset = note_bottom_offset
+            else:
+                bottom_offset = 0.0
+
+            def gap_after(item, continuation=False):
+                if len(note_ids) == 1:
+                    return (
+                        continuation_gap
+                        if continuation
+                        else single_note_gap
+                    )
+                return marker_gap if item[1] == 0 else paragraph_gap
+
+            body_bottom = self._page_content_bottom(page)
+            first_capacity = max(
+                0.0,
+                page.height
+                - page.margin_bottom
+                + bottom_offset
+                - separator_gap
+                - body_bottom,
+            )
+            total_height = sum(height for _, _, _, height in measured)
+            for item_index in range(len(measured) - 1):
+                total_height += gap_after(measured[item_index])
+            if total_height <= first_capacity + 0.5:
+                page_index += 1
+                continue
+
             full_page_capacity = max(
                 0.0,
                 page.height
@@ -456,63 +467,65 @@ class LayoutEngine:
                 - separator_gap
                 - page.margin_top,
             )
-            if not remaining or any(
+            if any(
                 height > full_page_capacity + 0.5
-                for _, height in remaining
+                for _, _, _, height in measured
             ):
                 logger.warning(
-                    "footnote_continuation_unresolved: footnote %s has a "
-                    "paragraph taller than one page",
-                    note_id,
+                    "footnote_continuation_unresolved: page %s has a "
+                    "footnote paragraph taller than one page",
+                    page.page_number,
                 )
                 page_index += 1
                 continue
 
-            def take_chunk(items, capacity, inter_paragraph_gap):
+            def take_chunk(items, capacity, continuation=False):
                 chunk = []
                 used = 0.0
                 while items:
-                    paragraph, height = items[0]
-                    required = height + (
-                        inter_paragraph_gap if chunk else 0.0
-                    )
-                    if chunk and used + required > capacity + 0.5:
+                    inter_paragraph_gap = 0.0
+                    if chunk:
+                        inter_paragraph_gap = gap_after(
+                            chunk[-1], continuation
+                        )
+                    required = items[0][3] + inter_paragraph_gap
+                    if used + required > capacity + 0.5:
                         break
-                    if not chunk and height > capacity + 0.5:
-                        break
-                    chunk.append(paragraph)
+                    chunk.append(items[0])
                     used += required
                     items = items[1:]
                 return chunk, items
 
-            first_chunk, remaining = take_chunk(
-                remaining, first_capacity, gap
-            )
+            def apply_chunk(target, chunk):
+                for note_id, _, paragraph, _ in chunk:
+                    target.footnote_paragraph_overrides.setdefault(
+                        note_id, []
+                    ).append(paragraph)
+
+            first_chunk, remaining = take_chunk(measured, first_capacity)
             if not first_chunk:
-                total_height = sum(
-                    height for _, height in measured[note_id]
-                ) + gap * max(0, len(measured[note_id]) - 1)
                 if total_height > full_page_capacity + 0.5:
                     logger.warning(
-                        "footnote_continuation_unresolved: footnote %s "
-                        "cannot leave a paragraph beside its reference",
-                        note_id,
+                        "footnote_continuation_unresolved: page %s cannot "
+                        "leave a footnote paragraph beside its reference",
+                        page.page_number,
                     )
                 page_index += 1
                 continue
-            page.footnote_paragraph_overrides[note_id] = first_chunk
+            apply_chunk(page, first_chunk)
+            page.footnote_multiple = len(note_ids) > 1
 
             insert_at = page_index + 1
             inserted = 0
             while remaining:
                 chunk, remaining_after = take_chunk(
-                    remaining, full_page_capacity, continuation_gap
+                    remaining, full_page_capacity, continuation=True
                 )
                 if not chunk:
                     logger.warning(
-                        "footnote_continuation_unresolved: footnote %s "
+                        "footnote_continuation_unresolved: page %s "
                         "continuation cannot fit",
-                        note_id,
+                        page.page_number,
                     )
                     break
                 continuation = PageBox(
@@ -524,8 +537,9 @@ class LayoutEngine:
                     margin_right=page.margin_right,
                     section=page.section,
                     footnote_continuation=True,
+                    footnote_multiple=len(note_ids) > 1,
                 )
-                continuation.footnote_paragraph_overrides[note_id] = chunk
+                apply_chunk(continuation, chunk)
                 pages.insert(insert_at, continuation)
                 insert_at += 1
                 inserted += 1

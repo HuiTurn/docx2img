@@ -1480,6 +1480,61 @@ def make_footnote_continuation(path: Path) -> Path:
     )
 
 
+def make_footnote_multiple_continuation(path: Path) -> Path:
+    """Two same-page footnotes whose combined paragraphs need page two."""
+    sect = (
+        "<w:sectPr>"
+        '<w:pgSz w:w="11906" w:h="6000"/>'
+        '<w:pgMar w:top="920" w:right="1800" w:bottom="920" w:left="1800" '
+        'w:header="720" w:footer="720" w:gutter="0"/>'
+        "</w:sectPr>"
+    )
+    reference = (
+        '<w:r><w:rPr><w:vertAlign w:val="superscript"/>'
+        '<w:sz w:val="20"/></w:rPr>'
+    )
+    body = _para(
+        _run("Body references", size_half_pt=28, bare=True)
+        + reference
+        + '<w:footnoteReference w:id="1"/></w:r>'
+        + _run(" and ", size_half_pt=28, bare=True)
+        + reference
+        + '<w:footnoteReference w:id="2"/></w:r>',
+        space_after=120,
+    )
+
+    def note_xml(note_id: int, label: str, count: int) -> str:
+        first = (
+            '<w:p><w:r><w:rPr><w:vertAlign w:val="superscript"/>'
+            '<w:sz w:val="20"/></w:rPr><w:footnoteRef/></w:r>'
+            '<w:r><w:tab/></w:r><w:r><w:rPr><w:sz w:val="20"/></w:rPr>'
+            f'<w:t>{label} line 1</w:t></w:r></w:p>'
+        )
+        rest = "".join(
+            '<w:p><w:r><w:rPr><w:sz w:val="20"/></w:rPr>'
+            f'<w:t>{label} line {i}</w:t></w:r></w:p>'
+            for i in range(2, count + 1)
+        )
+        return f'<w:footnote w:id="{note_id}">{first}{rest}</w:footnote>'
+
+    footnotes = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        f'<w:footnotes xmlns:w="{NS_W}">'
+        '<w:footnote w:type="separator" w:id="-1"><w:p><w:r>'
+        '<w:separator/></w:r></w:p></w:footnote>'
+        '<w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:r>'
+        '<w:continuationSeparator/></w:r></w:p></w:footnote>'
+        + note_xml(1, "First note", 5)
+        + note_xml(2, "Second note", 13)
+        + '</w:footnotes>'
+    )
+    return write_docx(
+        path,
+        _document(body + sect),
+        footnotes_xml=footnotes,
+    )
+
+
 def make_endnote(path: Path) -> Path:
     """One body reference and one plain-text endnote definition."""
     body = (
@@ -1587,6 +1642,9 @@ if __name__ == "__main__":
     make_footnote(out / "footnote.docx")
     make_footnote_reflow(out / "footnote_reflow.docx")
     make_footnote_continuation(out / "footnote_continuation.docx")
+    make_footnote_multiple_continuation(
+        out / "footnote_multiple_continuation.docx"
+    )
     make_endnote(out / "endnote.docx")
     make_endnote_continuation(out / "endnote_continuation.docx")
     print("Fixtures written to", out)

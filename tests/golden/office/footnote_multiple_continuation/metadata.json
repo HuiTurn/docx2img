@@ -1,0 +1,34 @@
+{
+  "provider": "office",
+  "case": "footnote_multiple_continuation",
+  "input_docx": "footnote_multiple_continuation.docx",
+  "input_path": "testdata/regression/office-min/footnote_multiple_continuation.docx",
+  "input_sha256": "f0464e89c01474b4ccfbcb0fae5647597b087edf7a0428e00c28e3da5296c364",
+  "word_version": "16.0",
+  "pdftoppm_version": "pdftoppm version 26.05.0",
+  "platform": "Windows-10-10.0.26200-SP0",
+  "python_version": "3.10.10",
+  "docx2img_version": "0.1.0",
+  "dpi": 150,
+  "color_mode": "RGB",
+  "background": [
+    255,
+    255,
+    255
+  ],
+  "reference_datetime": null,
+  "generated_at": "2026-07-26T12:53:00.284817+00:00",
+  "pdf_pages": 2,
+  "page_sizes_px": [
+    [
+      1241,
+      625
+    ],
+    [
+      1241,
+      625
+    ]
+  ],
+  "fonts_note": "Word used the host font environment; substitutions are not individually traced by ExportAsFixedFormat.",
+  "baseline_note": "First-introduction baseline: no global MAE/SSIM pass threshold. Subsequent slices must improve the target case without regressing existing office goldens."
+}

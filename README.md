@@ -55,8 +55,9 @@ Office corpus uses code-generated minimal fixtures under
 `testdata/regression/office-min/` (no third-party licensed DOCX required).
 Current office golden cases: `basic_text`, `date_field`, `drawingml_text`,
 `endnote`, `endnote_continuation`, `footnote`, `footnote_continuation`,
-`footnote_reflow`, `math_accent`, `math_bar`, `math_border_box`,
-`math_eq_arr`, `math_limit`, `page_break`, `shape_fill`.
+`footnote_multiple_continuation`, `footnote_reflow`, `math_accent`,
+`math_bar`, `math_border_box`, `math_eq_arr`, `math_limit`, `page_break`,
+`shape_fill`.
 Word COM / Poppler `pdftoppm` are
 **dev-only**;
 `src/docx2img` must never import Office. First office golden introduction
@@ -97,7 +98,7 @@ visible if reflow cannot safely resolve the collision. Definition tables,
 custom numbering and section-specific separators remain
 unsupported or approximate.
 
-One oversized, multi-paragraph footnote can now continue at paragraph
+One or more oversized, multi-paragraph footnotes can continue at paragraph
 boundaries onto inserted pages. Continuation pages retain the section geometry
 and decorations, use a full-width continuation separator, and participate in
 final PAGE / NUMPAGES stamping. The `footnote_continuation` Word 16.0 golden
@@ -105,11 +106,16 @@ final PAGE / NUMPAGES stamping. The `footnote_continuation` Word 16.0 golden
 RMSE 32.058, changed pixels 2.420%, SSIM 0.276686 to exact 2/2 pages, MAE
 2.845, RMSE 24.959, changed pixels 1.486%, SSIM 0.902276, with byte-identical
 repeated output. A paragraph taller than a page emits
-`footnote_continuation_unresolved`; multiple oversized notes on one page emit
-`footnote_continuation_multiple_notes` and retain the final overlap warning.
-Continuation within a paragraph, continuation of multiple simultaneous notes,
-definition tables, custom numbering, and custom separator content are not
-claimed supported.
+`footnote_continuation_unresolved`.
+
+Multiple notes referenced on one page are flattened in definition order, then
+split back into per-note paragraph overrides on each continuation page. The
+`footnote_multiple_continuation` Word 16.0 golden (150 dpi, 1241×625)
+improves from a hard 1/2 page-count mismatch, MAE 3.616, RMSE 28.011, changed
+pixels 1.904%, SSIM 0.634642 to exact 2/2 pages, MAE 2.532, RMSE 23.560,
+changed pixels 1.312%, SSIM 0.937488, with byte-identical repeated output.
+Continuation within a paragraph, definition tables, custom numbering, and
+custom separator content are not claimed supported.
 
 Basic paragraph-only endnotes now load `word/endnotes.xml`, retain
 `w:endnoteReference` in the run model, and stack referenced definitions after

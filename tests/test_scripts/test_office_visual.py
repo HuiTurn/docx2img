@@ -83,6 +83,7 @@ def test_office_cases_and_paths_isolated_from_libreoffice():
     assert "endnote_continuation" in generate_office.CASES
     assert "footnote" in generate_office.CASES
     assert "footnote_continuation" in generate_office.CASES
+    assert "footnote_multiple_continuation" in generate_office.CASES
     assert "footnote_reflow" in generate_office.CASES
     assert "math_accent" in generate_office.CASES
     assert "math_bar" in generate_office.CASES
@@ -224,6 +225,22 @@ def test_footnote_continuation_fixture_is_deterministic(tmp_path):
     h1 = generate_office.sha256(a)
     b = make_footnote_continuation(
         tmp_path / "footnote_continuation.docx"
+    )
+    h2 = generate_office.sha256(b)
+    assert h1 == h2
+    assert a.stat().st_size > 1000
+
+
+def test_multiple_footnote_continuation_fixture_is_deterministic(tmp_path):
+    """The two-note continuation fixture must hash-stably regenerate."""
+    from fixtures.gen_fixtures import make_footnote_multiple_continuation
+
+    a = make_footnote_multiple_continuation(
+        tmp_path / "footnote_multiple_continuation.docx"
+    )
+    h1 = generate_office.sha256(a)
+    b = make_footnote_multiple_continuation(
+        tmp_path / "footnote_multiple_continuation.docx"
     )
     h2 = generate_office.sha256(b)
     assert h1 == h2
