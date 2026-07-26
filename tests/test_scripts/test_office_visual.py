@@ -87,6 +87,7 @@ def test_office_cases_and_paths_isolated_from_libreoffice():
     assert "footnote_multiple_continuation" in generate_office.CASES
     assert "footnote_reflow" in generate_office.CASES
     assert "footnote_wrap_continuation" in generate_office.CASES
+    assert "header_sdt" in generate_office.CASES
     assert "header_table" in generate_office.CASES
     assert "hyperlink_complex_field" in generate_office.CASES
     assert "hyperlink_field" in generate_office.CASES
@@ -331,6 +332,18 @@ def test_header_table_fixture_is_deterministic(tmp_path):
     a = make_header_table(tmp_path / "header_table.docx")
     h1 = generate_office.sha256(a)
     b = make_header_table(tmp_path / "header_table.docx")
+    h2 = generate_office.sha256(b)
+    assert h1 == h2
+    assert a.stat().st_size > 1000
+
+
+def test_header_sdt_fixture_is_deterministic(tmp_path):
+    """The header content-control fixture must hash-stably regenerate."""
+    from fixtures.gen_fixtures import make_header_sdt
+
+    a = make_header_sdt(tmp_path / "header_sdt.docx")
+    h1 = generate_office.sha256(a)
+    b = make_header_sdt(tmp_path / "header_sdt.docx")
     h2 = generate_office.sha256(b)
     assert h1 == h2
     assert a.stat().st_size > 1000

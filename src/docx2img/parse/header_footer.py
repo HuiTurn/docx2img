@@ -43,35 +43,52 @@ class HeaderFooterParser:
         root = ET.fromstring(xml_bytes)
         blocks = []
         for child in root:
-            tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
-            if tag == "p":
-                # Pre-process fields into placeholder text runs
-                self._inject_field_placeholders(child)
-                para = self._parse_para(child)
-                if para:
-                    blocks.append(para)
-            elif tag == "tbl":
-                if self._parse_table is None:
-                    logger.warning(
-                        "header_footer_table_unsupported: "
-                        "table parser unavailable"
-                    )
-                    continue
-                try:
-                    table = self._parse_table(child)
-                except Exception as exc:
-                    logger.warning(
-                        "header_footer_table_malformed: %s",
-                        exc,
-                    )
-                    continue
-                if table is None or not getattr(table, "rows", None):
-                    logger.warning(
-                        "header_footer_table_empty: table has no rows"
-                    )
-                    continue
-                blocks.append(table)
+            blocks.extend(self._parse_block(child))
         return blocks
+
+    def _parse_block(self, elem) -> List[Any]:
+        tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
+        if tag == "p":
+            self._inject_field_placeholders(elem)
+            para = self._parse_para(elem)
+            return [para] if para else []
+        if tag == "tbl":
+            if self._parse_table is None:
+                logger.warning(
+                    "header_footer_table_unsupported: "
+                    "table parser unavailable"
+                )
+                return []
+            try:
+                table = self._parse_table(elem)
+            except Exception as exc:
+                logger.warning(
+                    "header_footer_table_malformed: %s",
+                    exc,
+                )
+                return []
+            if table is None or not getattr(table, "rows", None):
+                logger.warning(
+                    "header_footer_table_empty: table has no rows"
+                )
+                return []
+            return [table]
+        if tag == "sdt":
+            content = elem.find(f"{{{NS.W}}}sdtContent")
+            if content is None:
+                logger.warning(
+                    "header_footer_sdt_unsupported: no sdtContent"
+                )
+                return []
+            logger.warning(
+                "header_footer_sdt_fallback: rendered content without "
+                "control appearance"
+            )
+            blocks = []
+            for child in content:
+                blocks.extend(self._parse_block(child))
+            return blocks
+        return []
 
     def _inject_field_placeholders(self, para_elem) -> None:
         """Replace fldSimple / complex fields with placeholder w:r siblings."""

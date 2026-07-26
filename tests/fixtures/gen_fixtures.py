@@ -924,6 +924,47 @@ def make_header_table(path: Path) -> Path:
     )
 
 
+def make_header_sdt(path: Path) -> Path:
+    """One-page document with a block-level header content control."""
+    header_xml = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:hdr xmlns:w="{NS_W}">
+  <w:sdt>
+    <w:sdtPr>
+      <w:alias w:val="Header label"/>
+      <w:tag w:val="header-label"/>
+      <w:text/>
+    </w:sdtPr>
+    <w:sdtContent>
+      <w:p>
+        <w:pPr><w:jc w:val="center"/></w:pPr>
+        {_run("Controlled header", bold=True, color="2F5496")}
+      </w:p>
+    </w:sdtContent>
+  </w:sdt>
+</w:hdr>"""
+    sect = (
+        '<w:sectPr>'
+        '<w:headerReference w:type="default" r:id="rId20" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/>'
+        '<w:pgSz w:w="11906" w:h="16838"/>'
+        '<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" '
+        'w:header="720" w:footer="720" w:gutter="0"/>'
+        '</w:sectPr>'
+    )
+    rels = [
+        '<Relationship Id="rId20" '
+        'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" '
+        'Target="header1.xml"/>',
+    ]
+    body = _para(_run("Header content control fixture.", bare=True)) + sect
+    return write_docx(
+        path,
+        _document(body),
+        extra_rels=rels,
+        headers={"header1.xml": header_xml},
+    )
+
+
 def make_date_field(path: Path) -> Path:
     """One-page footer DATE field with an intentionally stale cached result."""
     footer_xml = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -1862,6 +1903,7 @@ if __name__ == "__main__":
     make_two_columns(out / "two_columns.docx")
     make_header_footer(out / "headers_footers.docx")
     make_header_table(out / "header_table.docx")
+    make_header_sdt(out / "header_sdt.docx")
     make_date_field(out / "date_field.docx")
     make_hyperlink_field(out / "hyperlink_field.docx")
     make_hyperlink_complex_field(out / "hyperlink_complex_field.docx")

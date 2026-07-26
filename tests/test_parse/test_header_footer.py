@@ -126,6 +126,21 @@ def test_empty_header_table_warns_and_is_skipped(caplog):
     assert "header_footer_table_empty: table has no rows" in caplog.text
 
 
+def test_header_sdt_without_content_warns_instead_of_silent_skip(caplog):
+    xml = (
+        '<w:hdr xmlns:w="http://schemas.openxmlformats.org/'
+        'wordprocessingml/2006/main"><w:sdt><w:sdtPr/></w:sdt></w:hdr>'
+    ).encode()
+    parser = HeaderFooterParser(lambda elem: "parsed")
+    with caplog.at_level(logging.WARNING):
+        blocks = parser.parse(xml)
+    assert blocks == []
+    assert (
+        "header_footer_sdt_unsupported: no sdtContent"
+        in caplog.text
+    )
+
+
 def test_date_fixture_expands_reference_time_during_layout(tmp_path):
     from fixtures.gen_fixtures import make_date_field
 

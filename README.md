@@ -56,7 +56,7 @@ Office corpus uses code-generated minimal fixtures under
 Current office golden cases: `basic_text`, `date_field`, `drawingml_text`,
 `endnote`, `endnote_continuation`, `footnote`, `footnote_continuation`,
 `footnote_line_continuation`, `footnote_multiple_continuation`,
-`footnote_reflow`, `footnote_wrap_continuation`, `header_table`,
+`footnote_reflow`, `footnote_wrap_continuation`, `header_sdt`, `header_table`,
 `hyperlink_field`,
 `hyperlink_complex_field`,
 `math_accent`, `math_bar`, `math_border_box`, `math_eq_arr`, `math_limit`,
@@ -102,6 +102,15 @@ dpi, 1/1 page, exact size, deterministic) and improves from MAE 0.969, RMSE
 10.820, changed pixels 0.33%, SSIM 0.673049 to MAE 0.704, RMSE 10.257,
 changed pixels 0.37%, SSIM 0.905693. Nested/floating header tables and
 header-part image relationships are not covered by this slice.
+
+Block-level `w:sdt` content controls in headers and footers now expose the
+static paragraphs/tables inside `w:sdtContent` instead of disappearing. The
+renderer logs `header_footer_sdt_fallback` because it does not reproduce
+content-control chrome, binding, locking, or placeholder state; a control
+without `w:sdtContent` logs `header_footer_sdt_unsupported`. The `header_sdt`
+Word 16.0 golden (150 dpi, 1/1 page, exact size, deterministic) improves from
+MAE 0.276, RMSE 7.516, changed pixels 0.15%, SSIM 0.909247 to MAE 0.217,
+RMSE 6.652, changed pixels 0.13%, SSIM 0.981761.
 
 Basic paragraph-only footnotes now load `word/footnotes.xml`, retain
 `w:footnoteReference` in the run model, and render the referenced note at the

@@ -2022,6 +2022,20 @@ changed pixels 0.37%, SSIM 0.905693 at 150 dpi. Footer tables share the same
 code path but have no separate Word golden in this slice; nested/floating
 header tables and header-part image relationships remain unverified.
 
+Block-level header/footer `w:sdt` elements are treated as transparent fallback
+containers: `HeaderFooterParser` recursively parses paragraph/table children
+of `w:sdtContent` and logs `header_footer_sdt_fallback` because control chrome,
+data binding, locking, and placeholder state are not modeled. A control with
+no `w:sdtContent` logs `header_footer_sdt_unsupported` and is skipped without
+crashing.
+
+The code-generated `header_sdt.docx` isolates one centered styled paragraph in
+a header content control. Unmodified `652273b` silently drops it and measures
+MAE 0.276, RMSE 7.516, changed pixels 0.15%, SSIM 0.909247 against Word 16.0.
+Static-content fallback produces the same 1/1 page at 1241x1754, is
+byte-deterministic, and measures MAE 0.217, RMSE 6.652, changed pixels 0.13%,
+SSIM 0.981761 at 150 dpi.
+
 Basic footnote fidelity: `Unpacker` loads `word/footnotes.xml`;
 `DocumentParser` maps each non-negative `w:footnote` ID to paragraph IR and
 retains body `w:footnoteReference` IDs on their runs. After final pagination,
