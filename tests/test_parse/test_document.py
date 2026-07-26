@@ -102,6 +102,25 @@ def test_body_sdt_without_content_warns_instead_of_silent_skip(caplog):
     assert "body_sdt_unsupported: no sdtContent" in caplog.text
 
 
+def test_empty_body_custom_xml_warns_instead_of_silent_skip(caplog):
+    path = make_basic_text(FIXTURES / "basic_text.docx")
+    package = Unpacker(path).unpack()
+    parser = DocumentParser(package, Config())
+    parser.parse()
+    model = DocumentModel()
+    custom_xml = ET.fromstring(
+        f'<w:customXml xmlns:w="{NS.W}"><w:customXmlPr/></w:customXml>'
+    )
+
+    parser._parse_body_custom_xml(custom_xml, model)
+
+    assert model.body == []
+    assert (
+        "body_custom_xml_unsupported: no supported block content"
+        in caplog.text
+    )
+
+
 def test_parse_page_borders_with_independent_sides():
     path = make_basic_text(FIXTURES / "basic_text.docx")
     package = Unpacker(path).unpack()

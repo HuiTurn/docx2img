@@ -99,6 +99,8 @@ class DocumentParser:
                         model.body.append(table)
                 elif tag == 'sdt':
                     self._parse_body_sdt(child, model)
+                elif tag == 'customXml':
+                    self._parse_body_custom_xml(child, model)
                 elif tag == 'sectPr':
                     section = self._parse_section(child)
                     if section:
@@ -139,7 +141,31 @@ class DocumentParser:
         logger.warning(
             "body_sdt_fallback: rendered content without control appearance"
         )
-        for child in content:
+        self._parse_body_container(content, model)
+
+    def _parse_body_custom_xml(self, elem, model: DocumentModel) -> None:
+        supported_tags = {"p", "tbl", "sdt", "customXml"}
+        has_supported_content = any(
+            (
+                child.tag.split("}")[-1]
+                if "}" in child.tag
+                else child.tag
+            )
+            in supported_tags
+            for child in elem
+        )
+        if not has_supported_content:
+            logger.warning(
+                "body_custom_xml_unsupported: no supported block content"
+            )
+            return
+        logger.warning(
+            "body_custom_xml_fallback: rendered content without data mapping"
+        )
+        self._parse_body_container(elem, model)
+
+    def _parse_body_container(self, container, model: DocumentModel) -> None:
+        for child in container:
             tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
             if tag == "p":
                 para = self._parse_paragraph(child)
@@ -153,6 +179,8 @@ class DocumentParser:
                     model.body.append(table)
             elif tag == "sdt":
                 self._parse_body_sdt(child, model)
+            elif tag == "customXml":
+                self._parse_body_custom_xml(child, model)
 
     def _parse_footnotes(self, model: DocumentModel) -> None:
         if not self.package.footnotes_xml:

@@ -53,7 +53,8 @@ and is **not** evidence of Word fidelity.
 
 Office corpus uses code-generated minimal fixtures under
 `testdata/regression/office-min/` (no third-party licensed DOCX required).
-Current office golden cases: `basic_text`, `body_sdt`, `date_field`,
+Current office golden cases: `basic_text`, `body_custom_xml`, `body_sdt`,
+`date_field`,
 `drawingml_text`,
 `endnote`, `endnote_continuation`, `footnote`, `footnote_continuation`,
 `footnote_line_continuation`, `footnote_multiple_continuation`,
@@ -121,6 +122,15 @@ state, and indirect wrapper types remain unsupported. The `body_sdt` Word 16.0
 golden (150 dpi, 1/1 page, exact size, deterministic) improves from MAE 0.084,
 RMSE 3.836, changed pixels 0.05%, SSIM 0.921701 to MAE 0.025, RMSE 1.594,
 changed pixels 0.03%, SSIM 0.999184.
+
+Block-level `w:customXml` wrappers in the document body now expose their
+direct static paragraphs/tables to normal flow while logging
+`body_custom_xml_fallback`, making the lack of custom-XML data mapping
+explicit. Empty wrappers log `body_custom_xml_unsupported`; schema validation,
+data-store binding, and indirect wrapper types remain unsupported. The
+`body_custom_xml` Word 16.0 golden (150 dpi, 1/1 page, exact size,
+deterministic) improves from MAE 0.096, RMSE 4.100, changed pixels 0.06%,
+SSIM 0.912737 to MAE 0.034, RMSE 1.981, changed pixels 0.03%, SSIM 0.998954.
 
 Basic paragraph-only footnotes now load `word/footnotes.xml`, retain
 `w:footnoteReference` in the run model, and render the referenced note at the

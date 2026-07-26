@@ -54,6 +54,7 @@ LO_CASES = {
 
 OFFICE_CASES = {
     "basic_text": "basic_text.docx",
+    "body_custom_xml": "body_custom_xml.docx",
     "body_sdt": "body_sdt.docx",
     "date_field": "date_field.docx",
     "drawingml_text": "drawingml_text.docx",
@@ -123,6 +124,7 @@ def _ensure_office_fixture(case: str, docx: Path) -> None:
         return
     from fixtures.gen_fixtures import (
         make_basic_text,
+        make_body_custom_xml,
         make_body_sdt,
         make_date_field,
         make_drawingml_text,
@@ -149,6 +151,7 @@ def _ensure_office_fixture(case: str, docx: Path) -> None:
 
     builders = {
         "basic_text": make_basic_text,
+        "body_custom_xml": make_body_custom_xml,
         "body_sdt": make_body_sdt,
         "date_field": make_date_field,
         "drawingml_text": make_drawingml_text,

@@ -2050,6 +2050,19 @@ Static-content fallback produces the same 1/1 page at 1241x1754, is
 byte-deterministic, and measures MAE 0.025, RMSE 1.594, changed pixels 0.03%,
 SSIM 0.999184 at 150 dpi.
 
+Document-body block-level `w:customXml` uses the shared transparent-container
+dispatcher for direct paragraph/table/SDT/customXml children. The parser logs
+`body_custom_xml_fallback` because it does not validate schemas or resolve
+custom XML data-store mappings; an empty wrapper logs
+`body_custom_xml_unsupported`.
+
+The code-generated `body_custom_xml.docx` isolates one centered styled
+paragraph in a custom XML wrapper. Unmodified `bd51cf3` silently drops it and
+measures MAE 0.096, RMSE 4.100, changed pixels 0.06%, SSIM 0.912737 against
+Word 16.0. Static-content fallback produces the same 1/1 page at 1241x1754,
+is byte-deterministic, and measures MAE 0.034, RMSE 1.981, changed pixels
+0.03%, SSIM 0.998954 at 150 dpi.
+
 Basic footnote fidelity: `Unpacker` loads `word/footnotes.xml`;
 `DocumentParser` maps each non-negative `w:footnote` ID to paragraph IR and
 retains body `w:footnoteReference` IDs on their runs. After final pagination,

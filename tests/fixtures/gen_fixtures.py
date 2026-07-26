@@ -991,6 +991,28 @@ def make_body_sdt(path: Path) -> Path:
     return write_docx(path, _document(sdt + sect))
 
 
+def make_body_custom_xml(path: Path) -> Path:
+    """One-page document with a block-level custom XML wrapper."""
+    custom_xml = f"""
+<w:customXml w:uri="urn:docx2img:test" w:element="label">
+  <w:customXmlPr>
+    <w:attr w:name="kind" w:val="fixture"/>
+  </w:customXmlPr>
+  <w:p>
+    <w:pPr><w:jc w:val="center"/></w:pPr>
+    {_run("Custom XML body", bold=True, color="2F5496")}
+  </w:p>
+</w:customXml>"""
+    sect = (
+        '<w:sectPr>'
+        '<w:pgSz w:w="11906" w:h="16838"/>'
+        '<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" '
+        'w:header="720" w:footer="720" w:gutter="0"/>'
+        '</w:sectPr>'
+    )
+    return write_docx(path, _document(custom_xml + sect))
+
+
 def make_date_field(path: Path) -> Path:
     """One-page footer DATE field with an intentionally stale cached result."""
     footer_xml = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -1931,6 +1953,7 @@ if __name__ == "__main__":
     make_header_table(out / "header_table.docx")
     make_header_sdt(out / "header_sdt.docx")
     make_body_sdt(out / "body_sdt.docx")
+    make_body_custom_xml(out / "body_custom_xml.docx")
     make_date_field(out / "date_field.docx")
     make_hyperlink_field(out / "hyperlink_field.docx")
     make_hyperlink_complex_field(out / "hyperlink_complex_field.docx")
