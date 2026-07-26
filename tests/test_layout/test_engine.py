@@ -205,6 +205,50 @@ class TestLayoutEngine:
         assert not _page_text(pages[1]), "page 2 must be blank (break mark only)"
         assert "After" in _page_text(pages[2])
 
+    def test_generated_page_break_fixture_preserves_blank_middle_page(self, tmp_path):
+        """The minimal OOXML office fixture keeps Word's blank middle page.
+
+        Unlike the exact-height unit case above, this exercises parsing and
+        the real docDefaults spacing where only the break paragraph's trailing
+        spacing crosses the page boundary.
+        """
+        import io
+
+        from tests.fixtures.gen_fixtures import make_page_break
+        from src.docx2img.parse.document import DocumentParser
+        from src.docx2img.render.canvas import RenderCanvas
+        from src.docx2img.unpack.unpacker import Unpacker
+
+        docx = make_page_break(tmp_path / "page_break.docx")
+        config = Config(dpi=150)
+        document = DocumentParser(Unpacker(docx).unpack(), config).parse()
+
+        page_break_runs = [
+            run
+            for para in document.body
+            if isinstance(para, Paragraph)
+            for run in para.runs
+            if run.brk is not None and run.brk.break_type == "page"
+        ]
+        assert len(page_break_runs) == 1
+
+        pages = LayoutEngine(document, config).layout()
+        assert len(pages) == 3
+        assert not LayoutEngine._block_has_ink(pages[1].blocks[0])
+
+        def _png_bytes():
+            rendered = RenderCanvas(config).render_pages(
+                LayoutEngine(document, config).layout()
+            )
+            payloads = []
+            for image in rendered:
+                payload = io.BytesIO()
+                image.save(payload, format="PNG")
+                payloads.append(payload.getvalue())
+            return payloads
+
+        assert _png_bytes() == _png_bytes()
+
     def test_float_only_paragraph_keeps_anchor_block(self):
         """An inkless paragraph must not discard its anchored drawing."""
         from src.docx2img.model.paragraph import ImageRun

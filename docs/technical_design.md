@@ -1942,18 +1942,20 @@ tests/
 #
 # Office golden cases (Word 16.0, 150 dpi):
 #   basic_text  2/2 pages  MAE 2.16  SSIM 0.95
-#   page_break  2/3 pages  HARD-DIFF page-count (pre-existing; tied to in-progress
-#                           line-height engine changes, not a rendering regression)
+#   page_break  3/3 pages  MAE 0.562  SSIM 0.957358  diff% 0.283%
 #   shape_fill  1/1 pages  MAE 0.84  SSIM 0.97  diff% 0.6%
 ```
 
 Manual page break fidelity: a paragraph whose only content is `w:br
-w:type="page"` keeps its mark-line height (~12.5pt @150dpi). When that mark
-line overflows a full page it lands alone on the next page — reproducing the
-blank intermediate page Word emits before the break fires. Verified by the
-`page_break` office golden (3/3 pages, deterministic, blank page 2 in both
-docx2img and Word). Spilled real content on that page (Word behaviour when the
-page is not exactly full) is likewise preserved instead of forcing a blank.
+w:type="page"` keeps its mark-line height and trailing paragraph spacing
+during page-fit checks. When their combined box overflows a full page, the
+invisible paragraph lands alone on the next page — reproducing the blank
+intermediate page Word emits before the break fires. Verified by the
+`page_break` office golden (3/3 pages and sizes, deterministic, blank page 2
+pixel-identical in docx2img and Word; mean MAE 0.562, SSIM 0.957358, changed
+pixels 0.283% at 150 dpi). Spilled real content on that page (Word behaviour
+when the page is not exactly full) is likewise preserved instead of forcing a
+blank.
 
 Shape fill & outline fidelity: standalone DrawingML text boxes / autoshapes
 (`wps:wsp`/`w:txbxContent` inside `wp:anchor`) previously rendered as bare

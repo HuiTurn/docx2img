@@ -1241,7 +1241,15 @@ class LayoutEngine:
                 block.height -= block.space_before
                 block.space_before = 0.0
             # Truncate trailing space_after if only the whitespace overflows.
-            if block.space_after > 0:
+            # A break-only paragraph is the exception: Word keeps its
+            # paragraph spacing when deciding whether the invisible mark fits.
+            # If that spacing crosses the boundary, the mark moves to a blank
+            # page and its manual break starts the following content on the
+            # next page.
+            keep_break_mark_spacing = (
+                block.page_break_after and not self._block_has_ink(block)
+            )
+            if block.space_after > 0 and not keep_break_mark_spacing:
                 content_h = block.height - block.space_after
                 if content_h >= 0 and (current_y - margin_top + content_h) <= available + 0.5 \
                         and (current_y - margin_top + block.height) > available + 0.5:
