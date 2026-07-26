@@ -10,6 +10,7 @@ from docx2img.parse.header_footer import (
     FIELD_DATE,
     HeaderFooterParser,
 )
+from docx2img.model.table import Table
 from docx2img.unpack.unpacker import Unpacker
 
 
@@ -74,6 +75,55 @@ def test_unsupported_complex_field_without_cache_warns(caplog):
         "REF has no cached result"
         in caplog.text
     )
+
+
+def test_header_table_without_parser_warns_instead_of_silent_skip(caplog):
+    xml = (
+        '<w:hdr xmlns:w="http://schemas.openxmlformats.org/'
+        'wordprocessingml/2006/main"><w:tbl><w:tr/></w:tbl></w:hdr>'
+    ).encode()
+    parser = HeaderFooterParser(lambda elem: "parsed")
+    with caplog.at_level(logging.WARNING):
+        blocks = parser.parse(xml)
+    assert blocks == []
+    assert (
+        "header_footer_table_unsupported: table parser unavailable"
+        in caplog.text
+    )
+
+
+def test_malformed_header_table_warns_and_does_not_crash(caplog):
+    xml = (
+        '<w:hdr xmlns:w="http://schemas.openxmlformats.org/'
+        'wordprocessingml/2006/main"><w:tbl/></w:hdr>'
+    ).encode()
+
+    def broken_table_parser(_):
+        raise ValueError("invalid table width")
+
+    parser = HeaderFooterParser(
+        lambda elem: "parsed",
+        broken_table_parser,
+    )
+    with caplog.at_level(logging.WARNING):
+        blocks = parser.parse(xml)
+    assert blocks == []
+    assert (
+        "header_footer_table_malformed: invalid table width"
+        in caplog.text
+    )
+
+
+def test_empty_header_table_warns_and_is_skipped(caplog):
+    xml = (
+        '<w:hdr xmlns:w="http://schemas.openxmlformats.org/'
+        'wordprocessingml/2006/main"><w:tbl/></w:hdr>'
+    ).encode()
+    parser = HeaderFooterParser(lambda elem: "parsed", lambda elem: Table())
+    with caplog.at_level(logging.WARNING):
+        blocks = parser.parse(xml)
+    assert blocks == []
+    assert "header_footer_table_empty: table has no rows" in caplog.text
 
 
 def test_date_fixture_expands_reference_time_during_layout(tmp_path):

@@ -11,7 +11,8 @@ Used exclusively by the **office** (Microsoft Word) golden provider:
 Cases are `basic_text`, `date_field`, `drawingml_text`, `endnote`,
 `endnote_continuation`, `footnote`, `footnote_continuation`,
 `footnote_line_continuation`, `footnote_multiple_continuation`,
-`footnote_reflow`, `footnote_wrap_continuation`, `hyperlink_field`,
+`footnote_reflow`, `footnote_wrap_continuation`, `header_table`,
+`hyperlink_field`,
 `hyperlink_complex_field`,
 `math_accent`, `math_bar`, `math_border_box`, `math_eq_arr`, `math_limit`,
 `page_break`, and `shape_fill`.
@@ -26,6 +27,9 @@ cached display result; link navigation is not part of the visual fixture.
 `hyperlink_complex_field.docx` isolates the same display as a flat
 `fldChar begin/instrText/separate/result/end` field sequence; nested fields and
 link navigation are outside this fixture.
+`header_table.docx` isolates a fixed-width, two-cell `w:tbl` in a header with
+borders, cell shading, and left/right paragraph alignment. It does not cover
+nested/floating tables or images related from the header part.
 `endnote.docx` isolates one `w:endnoteReference` and one paragraph-only
 definition in `word/endnotes.xml`.
 `endnote_continuation.docx` isolates one 18-paragraph endnote that Word

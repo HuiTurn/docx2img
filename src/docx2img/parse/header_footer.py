@@ -23,12 +23,19 @@ logger = logging.getLogger(__name__)
 class HeaderFooterParser:
     """Parse word/header*.xml / footer*.xml into paragraph lists."""
 
-    def __init__(self, para_parser: Callable):
+    def __init__(
+        self,
+        para_parser: Callable,
+        table_parser: Optional[Callable] = None,
+    ):
         """
         Args:
             para_parser: DocumentParser._parse_paragraph bound method
+            table_parser: DocumentParser._parse_table bound method, when
+                header/footer tables are supported by the caller
         """
         self._parse_para = para_parser
+        self._parse_table = table_parser
 
     def parse(self, xml_bytes: bytes) -> List[Any]:
         if not xml_bytes:
@@ -44,8 +51,26 @@ class HeaderFooterParser:
                 if para:
                     blocks.append(para)
             elif tag == "tbl":
-                # Tables in headers — rely on document table parser if available
-                pass
+                if self._parse_table is None:
+                    logger.warning(
+                        "header_footer_table_unsupported: "
+                        "table parser unavailable"
+                    )
+                    continue
+                try:
+                    table = self._parse_table(child)
+                except Exception as exc:
+                    logger.warning(
+                        "header_footer_table_malformed: %s",
+                        exc,
+                    )
+                    continue
+                if table is None or not getattr(table, "rows", None):
+                    logger.warning(
+                        "header_footer_table_empty: table has no rows"
+                    )
+                    continue
+                blocks.append(table)
         return blocks
 
     def _inject_field_placeholders(self, para_elem) -> None:

@@ -2005,6 +2005,23 @@ that result produces the same 1/1 page at 1241x1754, is byte-deterministic, and
 measures MAE 0.254, RMSE 7.091, changed pixels 0.15%, SSIM 0.980814 at 150 dpi
 while emitting the explicit complex cached-fallback warning.
 
+Header/footer block parsing now accepts static `w:tbl` elements by injecting
+`DocumentParser._parse_table` into `HeaderFooterParser`. The existing Table IR,
+table layout, and table renderer are reused; supported field placeholders are
+expanded recursively in cell paragraphs before page attachment. An unavailable
+parser, parse failure, or zero-row table emits
+`header_footer_table_unsupported`, `header_footer_table_malformed`, or
+`header_footer_table_empty` instead of silently disappearing.
+
+The code-generated `header_table.docx` isolates a fixed-width, one-row,
+two-cell header table with borders, shading, and aligned text. Unmodified
+`65f663e` skips it and measures MAE 0.969, RMSE 10.820, changed pixels 0.33%,
+SSIM 0.673049 against Word 16.0. The native table path produces the same 1/1
+page at 1241x1754, is byte-deterministic, and measures MAE 0.704, RMSE 10.257,
+changed pixels 0.37%, SSIM 0.905693 at 150 dpi. Footer tables share the same
+code path but have no separate Word golden in this slice; nested/floating
+header tables and header-part image relationships remain unverified.
+
 Basic footnote fidelity: `Unpacker` loads `word/footnotes.xml`;
 `DocumentParser` maps each non-negative `w:footnote` ID to paragraph IR and
 retains body `w:footnoteReference` IDs on their runs. After final pagination,

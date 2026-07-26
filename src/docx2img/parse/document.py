@@ -109,7 +109,10 @@ class DocumentParser:
         self._parse_endnotes(model)
 
         # Parse header/footer XML for each section
-        hf_parser = HeaderFooterParser(self._parse_paragraph)
+        hf_parser = HeaderFooterParser(
+            self._parse_paragraph,
+            self._parse_table,
+        )
         for section in model.sections:
             for htype, rid in section.header_refs.items():
                 xml = self.package.headers.get(rid)

@@ -1208,6 +1208,7 @@ class LayoutEngine:
         content_width = page.width - page.margin_left - page.margin_right
         header_y = section.header_distance * px_per_pt
 
+        header_blocks = []
         for elem in header_elems:
             if isinstance(elem, Paragraph):
                 para = copy.deepcopy(elem)
@@ -1215,12 +1216,24 @@ class LayoutEngine:
                 blocks = self._layout_paragraph(
                     para, page.margin_left, content_width, px_per_pt
                 )
-                y = header_y
-                for b in blocks:
-                    b.y = y
-                    self._finalize_block_coords(b)
-                    page.header_blocks.append(b)
-                    y += b.height
+                header_blocks.extend(blocks)
+            elif isinstance(elem, Table):
+                table = copy.deepcopy(elem)
+                self._expand_table_fields(table, page_num, total)
+                header_blocks.append(
+                    self._layout_table(
+                        table,
+                        page.margin_left,
+                        content_width,
+                        px_per_pt,
+                    )
+                )
+        y = header_y
+        for block in header_blocks:
+            block.y = y
+            self._finalize_block_coords(block)
+            page.header_blocks.append(block)
+            y += block.height
 
         footer_top = page.height - section.footer_distance * px_per_pt
         footer_blocks = []
@@ -1232,6 +1245,17 @@ class LayoutEngine:
                     para, page.margin_left, content_width, px_per_pt
                 )
                 footer_blocks.extend(blocks)
+            elif isinstance(elem, Table):
+                table = copy.deepcopy(elem)
+                self._expand_table_fields(table, page_num, total)
+                footer_blocks.append(
+                    self._layout_table(
+                        table,
+                        page.margin_left,
+                        content_width,
+                        px_per_pt,
+                    )
+                )
         fh = sum(b.height for b in footer_blocks)
         y = footer_top - fh
         for b in footer_blocks:
@@ -1250,6 +1274,20 @@ class LayoutEngine:
                     total,
                     reference_datetime=self.config.reference_datetime,
                 )
+
+    def _expand_table_fields(
+        self,
+        table: Table,
+        page_num: int,
+        total: int,
+    ) -> None:
+        for row in table.rows:
+            for cell in row.cells:
+                for block in cell.blocks:
+                    if isinstance(block, Paragraph):
+                        self._expand_para_fields(block, page_num, total)
+                    elif isinstance(block, Table):
+                        self._expand_table_fields(block, page_num, total)
 
     def _split_sections(self):
         """Split body into (Section, elements[]) using paragraph section breaks."""

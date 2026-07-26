@@ -56,7 +56,8 @@ Office corpus uses code-generated minimal fixtures under
 Current office golden cases: `basic_text`, `date_field`, `drawingml_text`,
 `endnote`, `endnote_continuation`, `footnote`, `footnote_continuation`,
 `footnote_line_continuation`, `footnote_multiple_continuation`,
-`footnote_reflow`, `footnote_wrap_continuation`, `hyperlink_field`,
+`footnote_reflow`, `footnote_wrap_continuation`, `header_table`,
+`hyperlink_field`,
 `hyperlink_complex_field`,
 `math_accent`, `math_bar`, `math_border_box`, `math_eq_arr`, `math_limit`,
 `page_break`, `shape_fill`.
@@ -89,6 +90,18 @@ unsupported. The `hyperlink_field` and `hyperlink_complex_field` Word 16.0
 goldens (150 dpi, 1/1 page, exact size, deterministic) each improve from MAE
 0.263, RMSE 7.429, changed pixels 0.14%, SSIM 0.932564 to MAE 0.254, RMSE
 7.091, changed pixels 0.15%, SSIM 0.980814.
+
+Static, non-floating `w:tbl` blocks in headers and footers now reuse the
+document table parser, table IR, layout engine, and renderer instead of being
+silently skipped. Table cell paragraphs also expand supported PAGE, NUMPAGES,
+and DATE placeholders. A missing table parser, malformed table, or table with
+no rows logs `header_footer_table_unsupported`,
+`header_footer_table_malformed`, or `header_footer_table_empty`. The
+`header_table` Word 16.0 golden isolates a fixed two-cell header table (150
+dpi, 1/1 page, exact size, deterministic) and improves from MAE 0.969, RMSE
+10.820, changed pixels 0.33%, SSIM 0.673049 to MAE 0.704, RMSE 10.257,
+changed pixels 0.37%, SSIM 0.905693. Nested/floating header tables and
+header-part image relationships are not covered by this slice.
 
 Basic paragraph-only footnotes now load `word/footnotes.xml`, retain
 `w:footnoteReference` in the run model, and render the referenced note at the
