@@ -1388,6 +1388,54 @@ def make_footnote(path: Path) -> Path:
     )
 
 
+def make_footnote_reflow(path: Path) -> Path:
+    """Near-full short page whose final paragraph owns a footnote.
+
+    Without reserving space for the note, all eight body paragraphs fit on
+    page one and the footnote overlaps the final paragraph. Word moves the
+    reference paragraph to page two so the page-bottom note remains clear.
+    """
+    sect = (
+        "<w:sectPr>"
+        '<w:pgSz w:w="11906" w:h="6000"/>'
+        '<w:pgMar w:top="920" w:right="1800" w:bottom="920" w:left="1800" '
+        'w:header="720" w:footer="720" w:gutter="0"/>'
+        "</w:sectPr>"
+    )
+    body = "".join(
+        _para(_run(f"Filler {i}", size_half_pt=28), space_after=120)
+        for i in range(1, 8)
+    )
+    body += _para(
+        _run("Reference paragraph", size_half_pt=28, bare=True)
+        + '<w:r><w:rPr><w:vertAlign w:val="superscript"/>'
+        '<w:sz w:val="20"/></w:rPr>'
+        '<w:footnoteReference w:id="1"/></w:r>',
+        space_after=120,
+    )
+    footnotes = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        f'<w:footnotes xmlns:w="{NS_W}">'
+        '<w:footnote w:type="separator" w:id="-1"><w:p><w:r>'
+        '<w:separator/></w:r></w:p></w:footnote>'
+        '<w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:r>'
+        '<w:continuationSeparator/></w:r></w:p></w:footnote>'
+        '<w:footnote w:id="1"><w:p>'
+        '<w:r><w:rPr><w:vertAlign w:val="superscript"/>'
+        '<w:sz w:val="20"/></w:rPr><w:footnoteRef/></w:r>'
+        '<w:r><w:tab/></w:r>'
+        '<w:r><w:rPr><w:sz w:val="20"/></w:rPr>'
+        '<w:t>Reserved footnote.</w:t></w:r>'
+        '</w:p></w:footnote>'
+        '</w:footnotes>'
+    )
+    return write_docx(
+        path,
+        _document(body + sect),
+        footnotes_xml=footnotes,
+    )
+
+
 def make_endnote(path: Path) -> Path:
     """One body reference and one plain-text endnote definition."""
     body = (
@@ -1449,5 +1497,6 @@ if __name__ == "__main__":
     make_math_limit(out / "math_limit.docx")
     make_math_eq_arr(out / "math_eq_arr.docx")
     make_footnote(out / "footnote.docx")
+    make_footnote_reflow(out / "footnote_reflow.docx")
     make_endnote(out / "endnote.docx")
     print("Fixtures written to", out)

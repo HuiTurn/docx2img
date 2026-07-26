@@ -177,6 +177,12 @@ class LayoutEngine:
             page.header_blocks.clear()
             page.footer_blocks.clear()
         self._stamp_and_attach_pages(all_pages)
+        self._attach_footnotes(all_pages, warn_overlap=False)
+        if self._reflow_footnote_overlaps(all_pages):
+            for page in all_pages:
+                page.header_blocks.clear()
+                page.footer_blocks.clear()
+            self._stamp_and_attach_pages(all_pages)
         self._attach_footnotes(all_pages)
         self._attach_endnotes(all_pages)
 
@@ -208,7 +214,9 @@ class LayoutEngine:
             self._attach_header_footer(page, section_page_index, total)
             previous_section = section
 
-    def _attach_footnotes(self, pages: List[PageBox]) -> None:
+    def _attach_footnotes(
+        self, pages: List[PageBox], warn_overlap: bool = True
+    ) -> None:
         """Attach the basic paragraph-only footnote subset to each page.
 
         Footnote references are associated with the page containing their body
@@ -267,7 +275,7 @@ class LayoutEngine:
             )
             separator_y = note_top - separator_gap
             body_bottom = self._page_content_bottom(page)
-            if separator_y < body_bottom:
+            if warn_overlap and separator_y < body_bottom:
                 logger.warning(
                     "footnote_layout_overlap: page %s body bottom %.2f exceeds "
                     "footnote separator %.2f",
@@ -289,6 +297,108 @@ class LayoutEngine:
                 page.margin_left + min(content_width, separator_width),
                 separator_stroke,
             )
+
+    def _reflow_footnote_overlaps(self, pages: List[PageBox]) -> bool:
+        """Move a trailing reference paragraph to a fresh page when needed.
+
+        This deliberately bounded pass handles the common case where the
+        paragraph containing the first footnote reference is near the bottom
+        of a single-column page. The paragraph and all following blocks move
+        together, preserving their already-computed line layout. Cases that
+        cannot be moved safely remain visible through the normal overlap
+        warning emitted by the final footnote attachment pass.
+        """
+        changed = False
+        index = 0
+        while index < len(pages):
+            page = pages[index]
+            separator = page.footnote_separator
+            if separator is None:
+                index += 1
+                continue
+            body_bottom = self._page_content_bottom(page)
+            if separator[1] >= body_bottom - 0.5:
+                index += 1
+                continue
+
+            section = page.section or Section()
+            if section.col_count > 1 or section.columns:
+                logger.warning(
+                    "footnote_reflow_unsupported_columns: page %s remains "
+                    "overlapped",
+                    page.page_number,
+                )
+                index += 1
+                continue
+
+            split_at = None
+            for block_index, block in enumerate(page.blocks):
+                paragraph = block.element
+                if not isinstance(paragraph, Paragraph):
+                    continue
+                if any(run.footnote_id is not None for run in paragraph.runs):
+                    split_at = block_index
+                    break
+
+            if split_at is None or split_at == 0:
+                logger.warning(
+                    "footnote_reflow_unresolved: page %s has no movable "
+                    "trailing reference paragraph",
+                    page.page_number,
+                )
+                index += 1
+                continue
+
+            moving = page.blocks[split_at:]
+            new_page = PageBox(
+                width=page.width,
+                height=page.height,
+                margin_top=page.margin_top,
+                margin_bottom=page.margin_bottom,
+                margin_left=page.margin_left,
+                margin_right=page.margin_right,
+                section=page.section,
+            )
+            page.blocks = page.blocks[:split_at]
+
+            y = new_page.margin_top
+            moving_float_ids = {
+                id(float_box)
+                for block in moving
+                for float_box in block.float_boxes
+            }
+            moving_textbox_ids = {
+                id(textbox)
+                for block in moving
+                for textbox in block.textbox_boxes
+            }
+            for block in moving:
+                self._translate_block(block, 0.0, y - block.y)
+                new_page.blocks.append(block)
+                y += block.height
+
+            for float_box in page.float_boxes:
+                if id(float_box) in moving_float_ids:
+                    new_page.float_boxes.append(float_box)
+            page.float_boxes = [
+                float_box
+                for float_box in page.float_boxes
+                if id(float_box) not in moving_float_ids
+            ]
+            for textbox in page.textbox_boxes:
+                if id(textbox) in moving_textbox_ids:
+                    new_page.textbox_boxes.append(textbox)
+            page.textbox_boxes = [
+                textbox
+                for textbox in page.textbox_boxes
+                if id(textbox) not in moving_textbox_ids
+            ]
+
+            pages.insert(index + 1, new_page)
+            changed = True
+            index += 2
+
+        return changed
 
     def _attach_endnotes(self, pages: List[PageBox]) -> None:
         """Attach the basic paragraph-only endnote subset after body flow."""

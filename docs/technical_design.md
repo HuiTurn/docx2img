@@ -1946,6 +1946,7 @@ tests/
 #   drawingml_text  1/1 page  MAE 0.554  SSIM 0.889565  diff% 0.317%
 #   endnote  1/1 page  MAE 0.122  SSIM 0.989004  diff% 0.063%
 #   footnote  1/1 page  MAE 0.138  SSIM 0.990319  diff% 0.070%
+#   footnote_reflow  2/2 pages  MAE 0.870  SSIM 0.925701  diff% 0.443%
 #   math_accent  1/1 page  MAE 0.010  SSIM 0.999180  diff% ~0.006%
 #   math_bar  1/1 page  MAE 0.013  SSIM 0.998945  diff% ~0.006%
 #   math_border_box  1/1 page  MAE 0.013  SSIM 0.997239  diff% ~0.007%
@@ -1984,9 +1985,26 @@ The code-generated `footnote.docx` isolates one styled reference and one
 plain-text note. Against Word 16.0 at 150 dpi it renders 1/1 page at the exact
 1241x1754 reference size and is byte-deterministic. Relative to unmodified
 `e6ab11f`, MAE improves 0.196 to 0.138, RMSE 6.927 to 5.524, changed pixels
-0.083% to 0.070%, and SSIM 0.887690 to 0.990319. This remains a basic
-paragraph-only path: layout does not yet reserve note height during body
-pagination or continue oversized notes, and note tables, custom numbering
+0.083% to 0.070%, and SSIM 0.887690 to 0.990319.
+
+Footnote reservation preflight attaches note boxes without logging, compares
+the resulting separator against the body bottom, and handles the bounded
+single-column case by moving the first reference paragraph plus all trailing
+blocks to a newly inserted page. Existing block line layout is translated,
+owned floats/text boxes follow the moved blocks, and page numbers plus
+headers/footers are rebuilt after insertion. The final attachment pass logs
+`footnote_layout_overlap` only if a collision remains. Multi-column pages log
+`footnote_reflow_unsupported_columns`; pages whose first reference block
+cannot be moved log `footnote_reflow_unresolved`.
+
+The short-page `footnote_reflow.docx` fixture fills page one with seven
+paragraphs and places the reference in the eighth. Unmodified `08ce24e`
+renders 1 page against Word's 2, overlaps the footnote, and measures MAE
+1.731, RMSE 19.616, changed pixels 0.878%, SSIM 0.728749 on the only paired
+page. The bounded reflow produces Word's 2/2 pages at the exact 1241x625
+sizes, is byte-deterministic, and measures mean MAE 0.870, RMSE 13.854,
+changed pixels 0.443%, SSIM 0.925701 at 150 dpi. Footnote continuation,
+reference paragraphs that cannot move, definition tables, custom numbering
 and section separator content are not claimed supported.
 
 Basic endnote fidelity: `Unpacker` loads `word/endnotes.xml`;

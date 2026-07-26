@@ -54,8 +54,9 @@ and is **not** evidence of Word fidelity.
 Office corpus uses code-generated minimal fixtures under
 `testdata/regression/office-min/` (no third-party licensed DOCX required).
 Current office golden cases: `basic_text`, `date_field`, `drawingml_text`,
-`endnote`, `footnote`, `math_accent`, `math_bar`, `math_border_box`,
-`math_eq_arr`, `math_limit`, `page_break`, `shape_fill`. Word COM / Poppler `pdftoppm` are
+`endnote`, `footnote`, `footnote_reflow`, `math_accent`, `math_bar`,
+`math_border_box`, `math_eq_arr`, `math_limit`, `page_break`, `shape_fill`.
+Word COM / Poppler `pdftoppm` are
 **dev-only**;
 `src/docx2img` must never import Office. First office golden introduction
 records baseline metrics without a global MAE/SSIM pass threshold; later
@@ -79,9 +80,21 @@ footnote overlap emit stable `footnote_*` warnings instead of disappearing
 silently. The one-reference `footnote` Word 16.0 golden (150 dpi, 1/1 page,
 exact size, deterministic) improves from MAE 0.196, RMSE 6.927, changed
 pixels 0.083%, SSIM 0.887690 to MAE 0.138, RMSE 5.524, changed pixels
-0.070%, SSIM 0.990319. Multi-paragraph notes are stacked, but pagination
-reservation, continuation across pages, tables, custom numbering and
-section-specific separator definitions remain unsupported or approximate.
+0.070%, SSIM 0.990319. Multi-paragraph notes are stacked.
+
+Near-full single-column pages now preflight their attached footnote region.
+When the first reference paragraph would overlap the page-bottom separator,
+that paragraph and its trailing blocks move together to a fresh page before
+page numbers and decorations are finalized. The `footnote_reflow` Word 16.0
+golden (150 dpi, 1241×625) improves from a hard 1/2 page-count mismatch,
+MAE 1.731, RMSE 19.616, changed pixels 0.878%, SSIM 0.728749 to 2/2 pages,
+MAE 0.870, RMSE 13.854, changed pixels 0.443%, SSIM 0.925701, with
+byte-identical repeated output. Multi-column pages and cases without a
+movable trailing reference emit `footnote_reflow_unsupported_columns` or
+`footnote_reflow_unresolved`; the final `footnote_layout_overlap` remains
+visible if reflow cannot safely resolve the collision. Footnote continuation,
+definition tables, custom numbering and section-specific separators remain
+unsupported or approximate.
 
 Basic paragraph-only endnotes now load `word/endnotes.xml`, retain
 `w:endnoteReference` in the run model, and stack referenced definitions after
