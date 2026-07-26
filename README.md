@@ -54,8 +54,8 @@ and is **not** evidence of Word fidelity.
 Office corpus uses code-generated minimal fixtures under
 `testdata/regression/office-min/` (no third-party licensed DOCX required).
 Current office golden cases: `basic_text`, `date_field`, `drawingml_text`,
-`footnote`, `math_accent`, `math_bar`, `math_border_box`, `math_eq_arr`,
-`math_limit`, `page_break`, `shape_fill`. Word COM / Poppler `pdftoppm` are
+`endnote`, `footnote`, `math_accent`, `math_bar`, `math_border_box`,
+`math_eq_arr`, `math_limit`, `page_break`, `shape_fill`. Word COM / Poppler `pdftoppm` are
 **dev-only**;
 `src/docx2img` must never import Office. First office golden introduction
 records baseline metrics without a global MAE/SSIM pass threshold; later
@@ -82,6 +82,18 @@ pixels 0.083%, SSIM 0.887690 to MAE 0.138, RMSE 5.524, changed pixels
 0.070%, SSIM 0.990319. Multi-paragraph notes are stacked, but pagination
 reservation, continuation across pages, tables, custom numbering and
 section-specific separator definitions remain unsupported or approximate.
+
+Basic paragraph-only endnotes now load `word/endnotes.xml`, retain
+`w:endnoteReference` in the run model, and stack referenced definitions after
+the final body block with Word's short separator. Missing definitions,
+malformed XML, invalid IDs, tables inside a definition and endnotes that
+overflow the last page emit stable `endnote_*` warnings. The one-reference
+`endnote` Word 16.0 golden (150 dpi, 1/1 page, exact size, deterministic)
+improves from MAE 0.155, RMSE 6.126, changed pixels 0.067%, SSIM 0.936571 to
+MAE 0.122, RMSE 5.145, changed pixels 0.063%, SSIM 0.989004. Multi-paragraph
+definitions and references inside table cells are included, but overflow
+pagination, custom numbering, definition tables and section-specific
+separator content remain unsupported or approximate.
 
 OMML `m:bar` now has native `MathBar` AST and top/bottom rule layout instead
 of losing the bar while flattening its body. The isolated `math_bar` Word

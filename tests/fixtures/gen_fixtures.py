@@ -315,6 +315,7 @@ def write_docx(
     headers: Optional[dict] = None,
     footers: Optional[dict] = None,
     footnotes_xml: Optional[str] = None,
+    endnotes_xml: Optional[str] = None,
     numbering_xml: Optional[str] = None,
 ) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -353,6 +354,22 @@ def write_docx(
             'wordprocessingml.footnotes+xml"/>'
             "</Types>",
         )
+    if endnotes_xml:
+        extras.append(
+            '<Relationship Id="rIdEndnotes" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/endnotes" '
+            'Target="endnotes.xml"/>'
+        )
+        rels = DOC_RELS.replace(
+            "</Relationships>", "".join(extras) + "</Relationships>"
+        )
+        ct = ct.replace(
+            "</Types>",
+            '<Override PartName="/word/endnotes.xml" '
+            'ContentType="application/vnd.openxmlformats-officedocument.'
+            'wordprocessingml.endnotes+xml"/>'
+            "</Types>",
+        )
     if headers:
         for name in headers:
             ct = ct.replace(
@@ -385,6 +402,8 @@ def write_docx(
         members["word/numbering.xml"] = numbering_xml
     if footnotes_xml:
         members["word/footnotes.xml"] = footnotes_xml
+    if endnotes_xml:
+        members["word/endnotes.xml"] = endnotes_xml
     for name, data in (media or {}).items():
         members[f"word/media/{name}"] = data
     for name, data in (headers or {}).items():
@@ -1369,6 +1388,40 @@ def make_footnote(path: Path) -> Path:
     )
 
 
+def make_endnote(path: Path) -> Path:
+    """One body reference and one plain-text endnote definition."""
+    body = (
+        _para(
+            _run("Body text", bare=True)
+            + '<w:r><w:rPr><w:vertAlign w:val="superscript"/>'
+            '<w:sz w:val="20"/></w:rPr>'
+            '<w:endnoteReference w:id="1"/></w:r>'
+        )
+        + _sect_pr()
+    )
+    endnotes = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        f'<w:endnotes xmlns:w="{NS_W}">'
+        '<w:endnote w:type="separator" w:id="-1"><w:p><w:r>'
+        '<w:separator/></w:r></w:p></w:endnote>'
+        '<w:endnote w:type="continuationSeparator" w:id="0"><w:p><w:r>'
+        '<w:continuationSeparator/></w:r></w:p></w:endnote>'
+        '<w:endnote w:id="1"><w:p>'
+        '<w:r><w:rPr><w:vertAlign w:val="superscript"/>'
+        '<w:sz w:val="20"/></w:rPr><w:endnoteRef/></w:r>'
+        '<w:r><w:tab/></w:r>'
+        '<w:r><w:rPr><w:sz w:val="20"/></w:rPr>'
+        '<w:t>Endnote text.</w:t></w:r>'
+        '</w:p></w:endnote>'
+        '</w:endnotes>'
+    )
+    return write_docx(
+        path,
+        _document(body),
+        endnotes_xml=endnotes,
+    )
+
+
 if __name__ == "__main__":
     out = Path(__file__).parent
     make_basic_text(out / "basic_text.docx")
@@ -1396,4 +1449,5 @@ if __name__ == "__main__":
     make_math_limit(out / "math_limit.docx")
     make_math_eq_arr(out / "math_eq_arr.docx")
     make_footnote(out / "footnote.docx")
+    make_endnote(out / "endnote.docx")
     print("Fixtures written to", out)

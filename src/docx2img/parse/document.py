@@ -106,6 +106,7 @@ class DocumentParser:
             model.sections.append(Section())
 
         self._parse_footnotes(model)
+        self._parse_endnotes(model)
 
         # Parse header/footer XML for each section
         hf_parser = HeaderFooterParser(self._parse_paragraph)
@@ -183,6 +184,75 @@ class DocumentParser:
                     "footnote_missing_definition: reference %s has no definition",
                     note_id,
                 )
+
+    def _parse_endnotes(self, model: DocumentModel) -> None:
+        if not self.package.endnotes_xml:
+            return
+        try:
+            root = ET.fromstring(self.package.endnotes_xml)
+        except ET.ParseError as exc:
+            logger.warning("endnotes_malformed_xml: %s", exc)
+            return
+        for note in root.findall(f"{{{NS.W}}}endnote"):
+            note_id = note.get(f"{{{NS.W}}}id")
+            if note_id is None:
+                continue
+            try:
+                if int(note_id) < 0:
+                    continue
+            except ValueError:
+                logger.warning("endnote_invalid_id: %s", note_id)
+                continue
+            paragraphs = []
+            for child in note:
+                tag = child.tag.split("}")[-1]
+                if tag == "p":
+                    paragraph = self._parse_paragraph(child)
+                    if paragraph is not None:
+                        paragraphs.append(paragraph)
+                elif tag == "tbl":
+                    logger.warning(
+                        "endnote_unsupported_table: endnote %s table omitted",
+                        note_id,
+                    )
+            if paragraphs:
+                marker_props = RunProps(
+                    font_size=10.0,
+                    vertical_align="superscript",
+                    position_offset=-3.0,
+                )
+                paragraphs[0].runs.insert(
+                    0,
+                    Run(
+                        text=TextRun(note_id, marker_props),
+                        endnote_id=note_id,
+                    ),
+                )
+            model.endnotes[note_id] = paragraphs
+
+        referenced = {
+            run.endnote_id
+            for paragraph in self._iter_paragraphs(model.body)
+            for run in paragraph.runs
+            if run.endnote_id is not None
+        }
+        for note_id in sorted(referenced):
+            if note_id not in model.endnotes:
+                logger.warning(
+                    "endnote_missing_definition: reference %s has no definition",
+                    note_id,
+                )
+
+    @classmethod
+    def _iter_paragraphs(cls, blocks):
+        """Yield body paragraphs, including those in nested table cells."""
+        for block in blocks:
+            if isinstance(block, Paragraph):
+                yield block
+            elif isinstance(block, Table):
+                for row in block.rows:
+                    for cell in row.cells:
+                        yield from cls._iter_paragraphs(cell.blocks)
 
     def _parse_paragraph(self, elem) -> Optional[Paragraph]:
         """Parse w:p element to Paragraph with style resolution."""
@@ -467,6 +537,16 @@ class DocumentParser:
                 run_props.position_offset -= 3.0
                 run.text = TextRun(text=note_id, props=run_props)
                 run.footnote_id = note_id
+                return run
+
+        endnote_ref = elem.find(f"{{{NS.W}}}endnoteReference")
+        if endnote_ref is not None:
+            note_id = endnote_ref.get(f"{{{NS.W}}}id")
+            if note_id is not None:
+                run_props.vertical_align = "superscript"
+                run_props.position_offset -= 3.0
+                run.text = TextRun(text=note_id, props=run_props)
+                run.endnote_id = note_id
                 return run
 
         texts = []

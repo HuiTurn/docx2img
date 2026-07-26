@@ -78,6 +78,16 @@ class RenderCanvas:
             )
         for block in getattr(page, "footnote_blocks", []) or []:
             self._render_block(block)
+        separator = getattr(page, "endnote_separator", None)
+        if separator is not None:
+            x1, y, x2, width = separator
+            self._draw.line(
+                [(x1, y), (x2, y)],
+                fill=(0, 0, 0),
+                width=width,
+            )
+        for block in getattr(page, "endnote_blocks", []) or []:
+            self._render_block(block)
         for block in page.footer_blocks:
             self._render_block(block)
 

@@ -223,6 +223,7 @@ class Run:
     tab: Optional[TabRun] = None
     textbox: Optional[TextBoxRun] = None
     footnote_id: Optional[str] = None
+    endnote_id: Optional[str] = None
 
 
 @dataclass

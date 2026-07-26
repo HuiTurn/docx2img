@@ -79,6 +79,8 @@ class PageBox:
     footer_blocks: List[BlockBox] = field(default_factory=list)
     footnote_blocks: List[BlockBox] = field(default_factory=list)
     footnote_separator: Optional[Tuple[float, float, float, int]] = None
+    endnote_blocks: List[BlockBox] = field(default_factory=list)
+    endnote_separator: Optional[Tuple[float, float, float, int]] = None
     float_boxes: List[Any] = field(default_factory=list)
     textbox_boxes: List[Any] = field(default_factory=list)
     width: float = 0.0
@@ -176,6 +178,7 @@ class LayoutEngine:
             page.footer_blocks.clear()
         self._stamp_and_attach_pages(all_pages)
         self._attach_footnotes(all_pages)
+        self._attach_endnotes(all_pages)
 
         return all_pages if all_pages else [PageBox(width=595, height=842)]
 
@@ -286,6 +289,80 @@ class LayoutEngine:
                 page.margin_left + min(content_width, separator_width),
                 separator_stroke,
             )
+
+    def _attach_endnotes(self, pages: List[PageBox]) -> None:
+        """Attach the basic paragraph-only endnote subset after body flow."""
+        if not pages:
+            return
+        for page in pages:
+            page.endnote_blocks.clear()
+            page.endnote_separator = None
+
+        note_ids: List[str] = []
+        seen = set()
+        def iter_paragraphs(blocks):
+            for block in blocks:
+                if isinstance(block, Paragraph):
+                    yield block
+                elif isinstance(block, Table):
+                    for row in block.rows:
+                        for cell in row.cells:
+                            yield from iter_paragraphs(cell.blocks)
+
+        for paragraph in iter_paragraphs(self.document.body):
+            for run in paragraph.runs:
+                note_id = run.endnote_id
+                if note_id is not None and note_id not in seen:
+                    seen.add(note_id)
+                    note_ids.append(note_id)
+        if not note_ids:
+            return
+
+        page = pages[-1]
+        px_per_pt = self.config.px_per_pt
+        content_width = page.width - page.margin_left - page.margin_right
+        note_blocks: List[BlockBox] = []
+        for note_id in note_ids:
+            for paragraph in self.document.endnotes.get(note_id, []):
+                note_blocks.extend(
+                    self._layout_paragraph(
+                        paragraph,
+                        page.margin_left,
+                        content_width,
+                        px_per_pt,
+                        apply_doc_grid=False,
+                    )
+                )
+        if not note_blocks:
+            return
+
+        separator_gap_before = 10.5 * px_per_pt
+        separator_gap_after = 6.5 * px_per_pt
+        separator_width = 144.0 * px_per_pt
+        separator_stroke = max(1, round(0.5 * px_per_pt))
+        body_bottom = self._page_content_bottom(page)
+        separator_y = body_bottom + separator_gap_before
+        y = separator_y + separator_gap_after
+        for block in note_blocks:
+            block.y = y
+            self._finalize_block_coords(block)
+            page.endnote_blocks.append(block)
+            y += block.height
+
+        if y > page.height - page.margin_bottom:
+            logger.warning(
+                "endnote_layout_overflow: page %s endnotes bottom %.2f exceeds "
+                "body area %.2f",
+                page.page_number,
+                y,
+                page.height - page.margin_bottom,
+            )
+        page.endnote_separator = (
+            page.margin_left,
+            separator_y,
+            page.margin_left + min(content_width, separator_width),
+            separator_stroke,
+        )
 
     @staticmethod
     def _block_has_ink(block: BlockBox) -> bool:

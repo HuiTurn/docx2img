@@ -34,6 +34,7 @@ class DocumentModel:
     headers: Dict[str, List] = field(default_factory=dict)  # rId → body
     footers: Dict[str, List] = field(default_factory=dict)
     footnotes: Dict[str, List[Paragraph]] = field(default_factory=dict)
+    endnotes: Dict[str, List[Paragraph]] = field(default_factory=dict)
     default_run_props: Optional[RunProps] = None
     default_para_props: Optional[ParaProps] = None
     theme_colors: dict = field(default_factory=dict)

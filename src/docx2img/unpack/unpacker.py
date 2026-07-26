@@ -17,6 +17,7 @@ class DocxPackage:
     headers: Dict[str, bytes] = field(default_factory=dict)  # rId or filename → bytes
     footers: Dict[str, bytes] = field(default_factory=dict)
     footnotes_xml: Optional[bytes] = None
+    endnotes_xml: Optional[bytes] = None
     rels: Dict[str, str] = field(default_factory=dict)
     document_rels: Dict[str, str] = field(default_factory=dict)
 
@@ -38,6 +39,7 @@ class Unpacker:
                 ('word/numbering.xml', 'numbering_xml'),
                 ('word/theme/theme1.xml', 'theme_xml'),
                 ('word/footnotes.xml', 'footnotes_xml'),
+                ('word/endnotes.xml', 'endnotes_xml'),
             ):
                 try:
                     setattr(package, attr, zf.read(name))

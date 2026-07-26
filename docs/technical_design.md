@@ -1944,6 +1944,7 @@ tests/
 #   basic_text  2/2 pages  MAE 2.16  SSIM 0.95
 #   date_field  1/1 page  MAE 0.308  SSIM 0.982710  diff% 0.159%
 #   drawingml_text  1/1 page  MAE 0.554  SSIM 0.889565  diff% 0.317%
+#   endnote  1/1 page  MAE 0.122  SSIM 0.989004  diff% 0.063%
 #   footnote  1/1 page  MAE 0.138  SSIM 0.990319  diff% 0.070%
 #   math_accent  1/1 page  MAE 0.010  SSIM 0.999180  diff% ~0.006%
 #   math_bar  1/1 page  MAE 0.013  SSIM 0.998945  diff% ~0.006%
@@ -1985,8 +1986,29 @@ plain-text note. Against Word 16.0 at 150 dpi it renders 1/1 page at the exact
 `e6ab11f`, MAE improves 0.196 to 0.138, RMSE 6.927 to 5.524, changed pixels
 0.083% to 0.070%, and SSIM 0.887690 to 0.990319. This remains a basic
 paragraph-only path: layout does not yet reserve note height during body
-pagination or continue oversized notes, and note tables, custom numbering,
-section separator content and endnotes are not claimed supported.
+pagination or continue oversized notes, and note tables, custom numbering
+and section separator content are not claimed supported.
+
+Basic endnote fidelity: `Unpacker` loads `word/endnotes.xml`;
+`DocumentParser` maps each non-negative `w:endnote` ID to paragraph IR and
+retains `w:endnoteReference` IDs, including references nested in table cells.
+After body pagination, `LayoutEngine` collects referenced definitions in
+document order and stacks their paragraphs after the final body block with a
+short separator. `RenderCanvas` paints those blocks independently of
+page-bottom footnotes. Missing definitions, malformed XML, invalid IDs and
+tables inside a definition log `endnote_missing_definition`,
+`endnotes_malformed_xml`, `endnote_invalid_id` and
+`endnote_unsupported_table`; content that exceeds the last page body area
+logs `endnote_layout_overflow` instead of being silently clipped.
+
+The code-generated `endnote.docx` isolates one styled reference and one
+plain-text definition. Against Word 16.0 at 150 dpi it renders 1/1 page at
+the exact 1241x1754 reference size and is byte-deterministic. Relative to
+unmodified `afa62ff`, MAE improves 0.155 to 0.122, RMSE 6.126 to 5.145,
+changed pixels 0.067% to 0.063%, and SSIM 0.936571 to 0.989004. This remains
+a basic path: oversized definitions are not yet repaginated, and definition
+tables, custom numbering and section-specific separator content are not
+claimed supported.
 
 OMML bar fidelity: `m:bar` maps to a native `MathBar` AST containing its body
 and top/bottom `m:pos`. `MathLayoutEngine` retains the body metrics and emits
