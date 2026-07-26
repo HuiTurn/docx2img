@@ -10,7 +10,7 @@ from docx2img.parse.document import DocumentParser
 from docx2img.parse.math_omml import OmmlParser
 from docx2img.layout.engine import LayoutEngine
 from docx2img.layout.math_layout import MathLayoutEngine
-from docx2img.model.math_ast import MathFrac, MathSup, MathRad, MathNary
+from docx2img.model.math_ast import MathBar, MathFrac, MathSup, MathRad, MathNary
 from docx2img.model.paragraph import Paragraph
 from tests.fixtures.gen_fixtures import make_math
 
@@ -60,6 +60,16 @@ class TestOmmlParser:
         assert isinstance(nary, MathNary)
         assert nary.char == "∑"
 
+    def test_bar_has_native_ast_and_position(self):
+        bar = OmmlParser().parse_xml(
+            b'<m:oMath xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math">'
+            b'<m:bar><m:barPr><m:pos m:val="bot"/></m:barPr>'
+            b"<m:e><m:r><m:t>xy</m:t></m:r></m:e></m:bar></m:oMath>"
+        )
+        assert isinstance(bar, MathBar)
+        assert bar.position == "bottom"
+        assert bar.body is not None
+
 
 class TestMathLayoutRender:
     def test_layout_boxes_nonzero(self):
@@ -75,6 +85,20 @@ class TestMathLayoutRender:
         assert box.width > 5
         assert box.height > 10
         assert box.texts or box.lines or box.children
+
+    def test_layout_bar_draws_rule_on_requested_side(self):
+        parser = OmmlParser()
+        body = parser.parse_xml(
+            b'<m:oMath xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math">'
+            b"<m:r><m:t>x</m:t></m:r></m:oMath>"
+        )
+        engine = MathLayoutEngine(Config(dpi=96))
+        top = engine.layout(MathBar(body=body), 14.0)
+        bottom = engine.layout(MathBar(body=body, position="bottom"), 14.0)
+
+        assert len(top.lines) == len(bottom.lines) == 1
+        assert top.lines[0]["y1"] < min(text["y"] for text in top.texts)
+        assert bottom.lines[0]["y1"] > max(text["y"] for text in bottom.texts)
 
     def test_parse_docx_math_runs(self):
         package = Unpacker(FIXTURES / "math.docx").unpack()

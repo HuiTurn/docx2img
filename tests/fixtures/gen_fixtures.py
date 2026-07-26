@@ -1257,6 +1257,18 @@ def make_math(path: Path) -> Path:
     return write_docx(path, _document(body))
 
 
+def make_math_bar(path: Path) -> Path:
+    """Single native OMML bottom bar, isolated from paragraph-flow noise."""
+    bottom = (
+        f'<m:oMath xmlns:m="{NS_M}"><m:bar>'
+        '<m:barPr><m:pos m:val="bot"/></m:barPr>'
+        '<m:e><m:r><m:t>xy</m:t></m:r></m:e>'
+        '</m:bar></m:oMath>'
+    )
+    body = _para(bottom, align="center") + _sect_pr()
+    return write_docx(path, _document(body))
+
+
 if __name__ == "__main__":
     out = Path(__file__).parent
     make_basic_text(out / "basic_text.docx")
@@ -1278,4 +1290,5 @@ if __name__ == "__main__":
     make_textbox(out / "textbox.docx")
     make_drawingml_text(out / "drawingml_text.docx")
     make_math(out / "math.docx")
+    make_math_bar(out / "math_bar.docx")
     print("Fixtures written to", out)

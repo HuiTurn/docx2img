@@ -36,6 +36,12 @@ class MathRad(MathNode):
 
 
 @dataclass
+class MathBar(MathNode):
+    body: Optional[MathNode] = None
+    position: str = "top"
+
+
+@dataclass
 class MathSup(MathNode):
     base: Optional[MathNode] = None
     superscript: Optional[MathNode] = None

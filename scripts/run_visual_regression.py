@@ -56,6 +56,7 @@ OFFICE_CASES = {
     "basic_text": "basic_text.docx",
     "date_field": "date_field.docx",
     "drawingml_text": "drawingml_text.docx",
+    "math_bar": "math_bar.docx",
     "page_break": "page_break.docx",
     "shape_fill": "shape_fill.docx",
 }
@@ -107,6 +108,7 @@ def _ensure_office_fixture(case: str, docx: Path) -> None:
         make_basic_text,
         make_date_field,
         make_drawingml_text,
+        make_math_bar,
         make_page_break,
         make_shape_fill,
     )
@@ -115,6 +117,7 @@ def _ensure_office_fixture(case: str, docx: Path) -> None:
         "basic_text": make_basic_text,
         "date_field": make_date_field,
         "drawingml_text": make_drawingml_text,
+        "math_bar": make_math_bar,
         "page_break": make_page_break,
         "shape_fill": make_shape_fill,
     }

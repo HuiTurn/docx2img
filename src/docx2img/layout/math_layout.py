@@ -11,7 +11,7 @@ from ..config import Config
 from ..font.manager import FontManager
 from ..model.math_ast import (
     MathNode, MathChar, MathRunSeq, MathFrac, MathRad, MathSup, MathSub,
-    MathSubSup, MathNary, MathDelim, MathMatrix, MathFunc,
+    MathSubSup, MathNary, MathDelim, MathMatrix, MathFunc, MathBar,
 )
 
 
@@ -49,6 +49,8 @@ class MathLayoutEngine:
             return self._frac(node, size_px)
         if isinstance(node, MathRad):
             return self._rad(node, size_px)
+        if isinstance(node, MathBar):
+            return self._bar(node, size_px)
         if isinstance(node, MathSup):
             return self._sup(node, size_px)
         if isinstance(node, MathSub):
@@ -191,6 +193,37 @@ class MathLayoutEngine:
         out.height = max(rad.height + size_px * 0.25, size_px * 1.2, deg.height)
         out.ascent = out.height * 0.8
         out.descent = out.height - out.ascent
+        return out
+
+    def _bar(self, node: MathBar, size_px: float) -> MathBox:
+        body = self._layout(node.body, size_px)
+        bottom = node.position == "bottom"
+        gap = max(1.0, size_px * (0.56 if bottom else 0.08))
+        rule = max(1.0, size_px * 0.06)
+        offset = gap + rule
+        body_y = 0.0 if bottom else offset
+        line_y = body.height + gap if bottom else rule / 2.0
+        out = MathBox(
+            width=body.width,
+            height=body.height + offset,
+            ascent=body.ascent + (0.0 if bottom else offset),
+            descent=body.descent + (offset if bottom else 0.0),
+        )
+        for text in body.texts:
+            out.texts.append({**text, "y": text["y"] + body_y})
+        for line in body.lines:
+            out.lines.append({
+                **line,
+                "y1": line["y1"] + body_y,
+                "y2": line["y2"] + body_y,
+            })
+        out.lines.append({
+            "x1": 0.0,
+            "y1": line_y,
+            "x2": body.width,
+            "y2": line_y,
+            "width": rule,
+        })
         return out
 
     def _sup(self, node: MathSup, size_px: float) -> MathBox:

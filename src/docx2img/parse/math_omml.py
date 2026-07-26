@@ -7,7 +7,7 @@ from typing import Optional, List
 
 from ..model.math_ast import (
     MathNode, MathChar, MathRunSeq, MathFrac, MathRad, MathSup, MathSub,
-    MathSubSup, MathNary, MathDelim, MathMatrix, MathFunc,
+    MathSubSup, MathNary, MathDelim, MathMatrix, MathFunc, MathBar,
 )
 
 M = "http://schemas.openxmlformats.org/officeDocument/2006/math"
@@ -35,6 +35,14 @@ class OmmlParser:
                 degree=self._child(elem, "deg"),
                 radicand=self._child(elem, "e"),
             )
+        if tag == "bar":
+            pos = elem.find(f"{{{M}}}barPr/{{{M}}}pos")
+            position = (
+                "bottom"
+                if pos is not None and pos.get(f"{{{M}}}val") == "bot"
+                else "top"
+            )
+            return MathBar(body=self._child(elem, "e"), position=position)
         if tag == "sSup":
             return MathSup(base=self._child(elem, "e"), superscript=self._child(elem, "sup"))
         if tag == "sSub":
@@ -117,7 +125,10 @@ class OmmlParser:
         nodes: List[MathNode] = []
         for child in elem:
             tag = child.tag.split("}")[-1]
-            if tag in ("rPr", "fPr", "radPr", "sSupPr", "sSubPr", "naryPr", "dPr", "mPr", "ctrlPr"):
+            if tag in (
+                "rPr", "fPr", "radPr", "barPr", "sSupPr", "sSubPr",
+                "naryPr", "dPr", "mPr", "ctrlPr",
+            ):
                 continue
             node = self.parse_element(child)
             if node is None:
