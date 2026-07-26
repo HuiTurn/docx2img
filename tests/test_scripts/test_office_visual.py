@@ -82,6 +82,7 @@ def test_office_cases_and_paths_isolated_from_libreoffice():
     assert "math_accent" in generate_office.CASES
     assert "math_bar" in generate_office.CASES
     assert "math_border_box" in generate_office.CASES
+    assert "math_limit" in generate_office.CASES
     assert "page_break" in generate_office.CASES
     assert "shape_fill" in generate_office.CASES
 
@@ -162,6 +163,17 @@ def test_math_border_box_fixture_is_deterministic(tmp_path):
     a = make_math_border_box(tmp_path / "math_border_box.docx")
     h1 = generate_office.sha256(a)
     b = make_math_border_box(tmp_path / "math_border_box.docx")
+    h2 = generate_office.sha256(b)
+    assert h1 == h2
+    assert a.stat().st_size > 1000
+
+
+def test_math_limit_fixture_is_deterministic(tmp_path):
+    from fixtures.gen_fixtures import make_math_limit
+
+    a = make_math_limit(tmp_path / "math_limit.docx")
+    h1 = generate_office.sha256(a)
+    b = make_math_limit(tmp_path / "math_limit.docx")
     h2 = generate_office.sha256(b)
     assert h1 == h2
     assert a.stat().st_size > 1000

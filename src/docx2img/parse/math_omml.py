@@ -9,7 +9,7 @@ from typing import Optional, List
 from ..model.math_ast import (
     MathNode, MathChar, MathRunSeq, MathFrac, MathRad, MathSup, MathSub,
     MathSubSup, MathNary, MathDelim, MathMatrix, MathFunc, MathBar,
-    MathAccent, MathBorderBox,
+    MathAccent, MathBorderBox, MathLimit,
 )
 
 M = "http://schemas.openxmlformats.org/officeDocument/2006/math"
@@ -81,6 +81,24 @@ class OmmlParser:
                 strike_top_left_bottom_right=self._property_enabled(
                     props, "strikeTLBR"
                 ),
+            )
+        if tag in ("limUpp", "limLow"):
+            base = self._child(elem, "e")
+            limit = self._child(elem, "lim")
+            if base is None:
+                logger.warning(
+                    "omml_limit_missing_base: %s has no renderable m:e",
+                    f"m:{tag}",
+                )
+            if limit is None:
+                logger.warning(
+                    "omml_limit_missing_value: %s has no renderable m:lim",
+                    f"m:{tag}",
+                )
+            return MathLimit(
+                base=base,
+                limit=limit,
+                position="upper" if tag == "limUpp" else "lower",
             )
         if tag == "sSup":
             return MathSup(base=self._child(elem, "e"), superscript=self._child(elem, "sup"))
@@ -166,7 +184,8 @@ class OmmlParser:
             tag = child.tag.split("}")[-1]
             if tag in (
                 "rPr", "fPr", "radPr", "barPr", "accPr", "borderBoxPr",
-                "sSupPr", "sSubPr", "naryPr", "dPr", "mPr", "ctrlPr",
+                "limUppPr", "limLowPr", "sSupPr", "sSubPr", "naryPr",
+                "dPr", "mPr", "ctrlPr",
             ):
                 continue
             node = self.parse_element(child)

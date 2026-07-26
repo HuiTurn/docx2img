@@ -1947,6 +1947,7 @@ tests/
 #   math_accent  1/1 page  MAE 0.010  SSIM 0.999180  diff% ~0.006%
 #   math_bar  1/1 page  MAE 0.013  SSIM 0.998945  diff% ~0.006%
 #   math_border_box  1/1 page  MAE 0.013  SSIM 0.997239  diff% ~0.007%
+#   math_limit  1/1 page  MAE 0.033  SSIM 0.997994  diff% 0.018%
 #   page_break  3/3 pages  MAE 0.565  SSIM 0.955725  diff% 0.284%
 #   shape_fill  1/1 pages  MAE 0.84  SSIM 0.97  diff% 0.6%
 ```
@@ -1972,8 +1973,7 @@ flattening no longer drops the bar. The centered, single-structure
 `math_bar.docx` fixture improves against Word 16.0 from MAE 0.019, RMSE 2.056,
 changed pixels 0.009%, SSIM 0.993927 to MAE 0.013, RMSE 1.671, changed pixels
 approximately 0.006%, SSIM 0.998945 at 150 dpi (1/1 page, exact size,
-deterministic). This does not extend the claim to `eqArr` or limit
-structures.
+deterministic). This does not extend the claim to `eqArr` structures.
 
 OMML accent fidelity: `m:acc` maps to a native `MathAccent` AST with the
 explicit `m:accPr/m:chr` character and parsed `m:e` body. The layout centers
@@ -1985,8 +1985,8 @@ stable `omml_acc_missing_body` warning and remains non-fatal. The centered
 body's RMSE 1.410 and SSIM 0.998550 to RMSE 1.396 and SSIM 0.999180 at 150
 dpi (MAE 0.010, changed pixels approximately 0.006%, 1/1 page, exact size,
 deterministic). This is a basic single-character accent path; font-specific
-stretching/combining behavior and `eqArr`/limit structures remain unsupported
-or approximate.
+stretching/combining behavior and `eqArr` structures remain unsupported or
+approximate.
 
 OMML border-box fidelity: `m:borderBox` maps to a native `MathBorderBox` AST
 containing its `m:e` body, `hideTop`/`hideBot`/`hideLeft`/`hideRight`, and
@@ -1999,6 +1999,17 @@ RMSE 2.848, changed pixels 0.015%, SSIM 0.983195 to MAE 0.013, RMSE 1.633,
 changed pixels approximately 0.007%, SSIM 0.997239 at 150 dpi (1/1 page,
 exact size, deterministic). Nested/stretchy contents and font-specific rule
 metrics remain approximate.
+
+OMML limit fidelity: `m:limUpp` and `m:limLow` map to a native `MathLimit`
+AST containing distinct `m:e` base and `m:lim` value nodes. Layout scales the
+limit value to 70% and centers it above or below the base with a measured
+gap. Missing nodes log `omml_limit_missing_base` and
+`omml_limit_missing_value` independently without crashing. The centered
+lower-limit `math_limit.docx` fixture improves against Word 16.0 from the
+old horizontal flattening's MAE 0.050, RMSE 3.321, changed pixels 0.025%,
+SSIM 0.972236 to MAE 0.033, RMSE 2.675, changed pixels 0.018%, SSIM
+0.997994 at 150 dpi (1/1 page, exact size, deterministic). Complex nested
+limits and font-specific operator spacing remain approximate.
 
 Manual page break fidelity: a paragraph whose only content is `w:br
 w:type="page"` keeps its mark-line height and trailing paragraph spacing

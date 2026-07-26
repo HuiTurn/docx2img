@@ -12,7 +12,7 @@ from ..font.manager import FontManager
 from ..model.math_ast import (
     MathNode, MathChar, MathRunSeq, MathFrac, MathRad, MathSup, MathSub,
     MathSubSup, MathNary, MathDelim, MathMatrix, MathFunc, MathBar,
-    MathAccent, MathBorderBox,
+    MathAccent, MathBorderBox, MathLimit,
 )
 
 
@@ -56,6 +56,8 @@ class MathLayoutEngine:
             return self._accent(node, size_px)
         if isinstance(node, MathBorderBox):
             return self._border_box(node, size_px)
+        if isinstance(node, MathLimit):
+            return self._limit(node, size_px)
         if isinstance(node, MathSup):
             return self._sup(node, size_px)
         if isinstance(node, MathSub):
@@ -345,6 +347,47 @@ class MathLayoutEngine:
             add_line(0.0, border_bottom, width, border_top)
         if node.strike_top_left_bottom_right:
             add_line(0.0, border_top, width, border_bottom)
+        return out
+
+    def _limit(self, node: MathLimit, size_px: float) -> MathBox:
+        base = self._layout(node.base, size_px)
+        value = self._layout(node.limit, size_px * 0.70)
+        gap = max(0.0, size_px * 0.10)
+        width = max(base.width, value.width)
+        base_x = (width - base.width) / 2.0
+        value_x = (width - value.width) / 2.0
+        upper = node.position == "upper"
+        value_y = 0.0 if upper else base.height + gap
+        base_y = value.height + gap if upper else 0.0
+        height = max(
+            base_y + base.height,
+            value_y + value.height,
+        )
+        out = MathBox(
+            width=width,
+            height=height,
+            ascent=base.ascent + base_y,
+            descent=height - base.ascent - base_y,
+        )
+
+        def append_box(box: MathBox, dx: float, dy: float) -> None:
+            for text in box.texts:
+                out.texts.append({
+                    **text,
+                    "x": text["x"] + dx,
+                    "y": text["y"] + dy,
+                })
+            for line in box.lines:
+                out.lines.append({
+                    **line,
+                    "x1": line["x1"] + dx,
+                    "x2": line["x2"] + dx,
+                    "y1": line["y1"] + dy,
+                    "y2": line["y2"] + dy,
+                })
+
+        append_box(base, base_x, base_y)
+        append_box(value, value_x, value_y)
         return out
 
     def _sup(self, node: MathSup, size_px: float) -> MathBox:

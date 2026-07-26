@@ -1292,6 +1292,18 @@ def make_math_border_box(path: Path) -> Path:
     return write_docx(path, _document(body))
 
 
+def make_math_limit(path: Path) -> Path:
+    """Single native OMML lower limit, isolated from paragraph-flow noise."""
+    limit = (
+        f'<m:oMath xmlns:m="{NS_M}"><m:limLow>'
+        '<m:e><m:r><m:t>lim</m:t></m:r></m:e>'
+        '<m:lim><m:r><m:t>x=0</m:t></m:r></m:lim>'
+        '</m:limLow></m:oMath>'
+    )
+    body = _para(limit, align="center") + _sect_pr()
+    return write_docx(path, _document(body))
+
+
 if __name__ == "__main__":
     out = Path(__file__).parent
     make_basic_text(out / "basic_text.docx")
@@ -1316,4 +1328,5 @@ if __name__ == "__main__":
     make_math_bar(out / "math_bar.docx")
     make_math_accent(out / "math_accent.docx")
     make_math_border_box(out / "math_border_box.docx")
+    make_math_limit(out / "math_limit.docx")
     print("Fixtures written to", out)

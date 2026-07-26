@@ -61,6 +61,13 @@ class MathBorderBox(MathNode):
 
 
 @dataclass
+class MathLimit(MathNode):
+    base: Optional[MathNode] = None
+    limit: Optional[MathNode] = None
+    position: str = "lower"
+
+
+@dataclass
 class MathSup(MathNode):
     base: Optional[MathNode] = None
     superscript: Optional[MathNode] = None

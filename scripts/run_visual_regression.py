@@ -59,6 +59,7 @@ OFFICE_CASES = {
     "math_accent": "math_accent.docx",
     "math_bar": "math_bar.docx",
     "math_border_box": "math_border_box.docx",
+    "math_limit": "math_limit.docx",
     "page_break": "page_break.docx",
     "shape_fill": "shape_fill.docx",
 }
@@ -113,6 +114,7 @@ def _ensure_office_fixture(case: str, docx: Path) -> None:
         make_math_accent,
         make_math_bar,
         make_math_border_box,
+        make_math_limit,
         make_page_break,
         make_shape_fill,
     )
@@ -124,6 +126,7 @@ def _ensure_office_fixture(case: str, docx: Path) -> None:
         "math_accent": make_math_accent,
         "math_bar": make_math_bar,
         "math_border_box": make_math_border_box,
+        "math_limit": make_math_limit,
         "page_break": make_page_break,
         "shape_fill": make_shape_fill,
     }

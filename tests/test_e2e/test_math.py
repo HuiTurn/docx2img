@@ -14,6 +14,7 @@ from docx2img.model.math_ast import (
     MathAccent,
     MathBar,
     MathBorderBox,
+    MathLimit,
     MathFrac,
     MathSup,
     MathRad,
@@ -129,6 +130,38 @@ class TestOmmlParser:
         assert border.body is None
         assert "omml_border_box_missing_body" in caplog.text
 
+    @pytest.mark.parametrize(
+        ("tag", "position"),
+        (("limUpp", "upper"), ("limLow", "lower")),
+    )
+    def test_limit_has_native_ast(self, tag, position):
+        limit = OmmlParser().parse_xml(
+            (
+                '<m:oMath xmlns:m="http://schemas.openxmlformats.org/'
+                f'officeDocument/2006/math"><m:{tag}>'
+                '<m:e><m:r><m:t>lim</m:t></m:r></m:e>'
+                '<m:lim><m:r><m:t>x</m:t></m:r></m:lim>'
+                f"</m:{tag}></m:oMath>"
+            ).encode("utf-8")
+        )
+        assert isinstance(limit, MathLimit)
+        assert limit.base is not None
+        assert limit.limit is not None
+        assert limit.position == position
+
+    def test_malformed_limit_warns_without_crashing(self, caplog):
+        with caplog.at_level("WARNING", logger="docx2img.parse.math_omml"):
+            limit = OmmlParser().parse_xml(
+                b'<m:oMath xmlns:m="http://schemas.openxmlformats.org/'
+                b'officeDocument/2006/math"><m:limLow/>'
+                b"</m:oMath>"
+            )
+        assert isinstance(limit, MathLimit)
+        assert limit.base is None
+        assert limit.limit is None
+        assert "omml_limit_missing_base" in caplog.text
+        assert "omml_limit_missing_value" in caplog.text
+
 
 class TestMathLayoutRender:
     def test_layout_boxes_nonzero(self):
@@ -200,6 +233,37 @@ class TestMathLayoutRender:
             bbox = text["font"].getbbox(text["text"])
             assert text["y"] + bbox[1] > border_top
             assert text["y"] + bbox[3] < box.height
+
+    def test_layout_limit_places_value_above_or_below_base(self):
+        base = OmmlParser().parse_xml(
+            b'<m:oMath xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math">'
+            b"<m:r><m:t>lim</m:t></m:r></m:oMath>"
+        )
+        value = OmmlParser().parse_xml(
+            b'<m:oMath xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math">'
+            b"<m:r><m:t>x</m:t></m:r></m:oMath>"
+        )
+        engine = MathLayoutEngine(Config(dpi=96))
+        upper = engine.layout(
+            MathLimit(base=base, limit=value, position="upper"),
+            14.0,
+        )
+        lower = engine.layout(
+            MathLimit(base=base, limit=value, position="lower"),
+            14.0,
+        )
+        for box, relation in ((upper, "upper"), (lower, "lower")):
+            value_text = next(text for text in box.texts if text["text"] == "x")
+            base_top = min(
+                text["y"] for text in box.texts if text["text"] != "x"
+            )
+            base_bottom = max(
+                text["y"] for text in box.texts if text["text"] != "x"
+            )
+            if relation == "upper":
+                assert value_text["y"] < base_top
+            else:
+                assert value_text["y"] > base_bottom
 
     def test_parse_docx_math_runs(self):
         package = Unpacker(FIXTURES / "math.docx").unpack()
