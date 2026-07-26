@@ -54,8 +54,8 @@ and is **not** evidence of Word fidelity.
 Office corpus uses code-generated minimal fixtures under
 `testdata/regression/office-min/` (no third-party licensed DOCX required).
 Current office golden cases: `basic_text`, `date_field`, `drawingml_text`,
-`math_accent`, `math_bar`, `math_border_box`, `math_limit`, `page_break`,
-`shape_fill`. Word COM / Poppler `pdftoppm` are
+`math_accent`, `math_bar`, `math_border_box`, `math_eq_arr`, `math_limit`,
+`page_break`, `shape_fill`. Word COM / Poppler `pdftoppm` are
 **dev-only**;
 `src/docx2img` must never import Office. First office golden introduction
 records baseline metrics without a global MAE/SSIM pass threshold; later
@@ -75,8 +75,7 @@ OMML `m:bar` now has native `MathBar` AST and top/bottom rule layout instead
 of losing the bar while flattening its body. The isolated `math_bar` Word
 16.0 golden (150 dpi, 1/1 page, exact size, deterministic) improves from MAE
 0.019, RMSE 2.056, changed pixels 0.009%, SSIM 0.993927 to MAE 0.013, RMSE
-1.671, changed pixels ≈0.006%, SSIM 0.998945. Other advanced OMML structures
-such as `eqArr` remain basic/unsupported.
+1.671, changed pixels ≈0.006%, SSIM 0.998945.
 
 OMML `m:acc` has a native `MathAccent` AST for an explicit `m:chr` and its
 `m:e` body. The accent is centered in the body's existing ascender area, so
@@ -104,6 +103,15 @@ deterministic) improves the old horizontal flattening from MAE 0.050, RMSE
 3.321, changed pixels 0.025%, SSIM 0.972236 to MAE 0.033, RMSE 2.675,
 changed pixels 0.018%, SSIM 0.997994. Complex nested limit typography remains
 approximate.
+
+OMML `m:eqArr` now retains each direct `m:e` as a native
+`MathEquationArray` row instead of concatenating every row horizontally.
+Missing rows emit `omml_eq_arr_missing_rows`; empty rows emit
+`omml_eq_arr_empty_row`. The isolated two-row Word 16.0 golden (150 dpi, 1/1
+page, exact size, deterministic) improves from MAE 0.025, RMSE 2.393,
+changed pixels 0.012%, SSIM 0.983577 to MAE 0.014, RMSE 1.729, changed
+pixels 0.008%, SSIM 0.999444. Custom `eqArrPr` alignment and row-spacing
+semantics remain approximate.
 
 Manual page breaks (`w:br w:type="page"`) preserve the invisible paragraph
 mark and its trailing paragraph spacing during page-fit checks. When that

@@ -9,7 +9,8 @@ Used exclusively by the **office** (Microsoft Word) golden provider:
 - compare: `python scripts/run_visual_regression.py --provider office --case basic_text`
 
 Cases are `basic_text`, `date_field`, `drawingml_text`, `math_accent`,
-`math_bar`, `math_border_box`, `math_limit`, `page_break`, and `shape_fill`.
+`math_bar`, `math_border_box`, `math_eq_arr`, `math_limit`, `page_break`,
+and `shape_fill`.
 `date_field.docx` has a stale cached DATE
 result so Word's
 read-only field update and the renderer's fixed `reference_datetime` can be
@@ -19,6 +20,7 @@ does not contain a `wps:txbx/w:txbxContent` fallback.
 `math_accent.docx` isolates a centered OMML `m:acc` with an explicit tilde.
 `math_bar.docx` isolates a centered bottom-positioned OMML `m:bar`.
 `math_border_box.docx` isolates a centered default OMML `m:borderBox`.
+`math_eq_arr.docx` isolates a centered two-row OMML `m:eqArr`.
 `math_limit.docx` isolates a centered OMML `m:limLow`.
 
 Artifacts live under `tests/golden/office/` and `tests/output/office/`.

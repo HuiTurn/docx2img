@@ -1304,6 +1304,18 @@ def make_math_limit(path: Path) -> Path:
     return write_docx(path, _document(body))
 
 
+def make_math_eq_arr(path: Path) -> Path:
+    """Single native two-row OMML equation array."""
+    equations = (
+        f'<m:oMath xmlns:m="{NS_M}"><m:eqArr>'
+        '<m:e><m:r><m:t>a</m:t></m:r></m:e>'
+        '<m:e><m:r><m:t>b</m:t></m:r></m:e>'
+        '</m:eqArr></m:oMath>'
+    )
+    body = _para(equations, align="center") + _sect_pr()
+    return write_docx(path, _document(body))
+
+
 if __name__ == "__main__":
     out = Path(__file__).parent
     make_basic_text(out / "basic_text.docx")
@@ -1329,4 +1341,5 @@ if __name__ == "__main__":
     make_math_accent(out / "math_accent.docx")
     make_math_border_box(out / "math_border_box.docx")
     make_math_limit(out / "math_limit.docx")
+    make_math_eq_arr(out / "math_eq_arr.docx")
     print("Fixtures written to", out)

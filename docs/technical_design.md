@@ -1947,6 +1947,7 @@ tests/
 #   math_accent  1/1 page  MAE 0.010  SSIM 0.999180  diff% ~0.006%
 #   math_bar  1/1 page  MAE 0.013  SSIM 0.998945  diff% ~0.006%
 #   math_border_box  1/1 page  MAE 0.013  SSIM 0.997239  diff% ~0.007%
+#   math_eq_arr  1/1 page  MAE 0.014  SSIM 0.999444  diff% 0.008%
 #   math_limit  1/1 page  MAE 0.033  SSIM 0.997994  diff% 0.018%
 #   page_break  3/3 pages  MAE 0.565  SSIM 0.955725  diff% 0.284%
 #   shape_fill  1/1 pages  MAE 0.84  SSIM 0.97  diff% 0.6%
@@ -1973,7 +1974,7 @@ flattening no longer drops the bar. The centered, single-structure
 `math_bar.docx` fixture improves against Word 16.0 from MAE 0.019, RMSE 2.056,
 changed pixels 0.009%, SSIM 0.993927 to MAE 0.013, RMSE 1.671, changed pixels
 approximately 0.006%, SSIM 0.998945 at 150 dpi (1/1 page, exact size,
-deterministic). This does not extend the claim to `eqArr` structures.
+deterministic).
 
 OMML accent fidelity: `m:acc` maps to a native `MathAccent` AST with the
 explicit `m:accPr/m:chr` character and parsed `m:e` body. The layout centers
@@ -1985,8 +1986,7 @@ stable `omml_acc_missing_body` warning and remains non-fatal. The centered
 body's RMSE 1.410 and SSIM 0.998550 to RMSE 1.396 and SSIM 0.999180 at 150
 dpi (MAE 0.010, changed pixels approximately 0.006%, 1/1 page, exact size,
 deterministic). This is a basic single-character accent path; font-specific
-stretching/combining behavior and `eqArr` structures remain unsupported or
-approximate.
+stretching/combining behavior remains approximate.
 
 OMML border-box fidelity: `m:borderBox` maps to a native `MathBorderBox` AST
 containing its `m:e` body, `hideTop`/`hideBot`/`hideLeft`/`hideRight`, and
@@ -2010,6 +2010,18 @@ old horizontal flattening's MAE 0.050, RMSE 3.321, changed pixels 0.025%,
 SSIM 0.972236 to MAE 0.033, RMSE 2.675, changed pixels 0.018%, SSIM
 0.997994 at 150 dpi (1/1 page, exact size, deterministic). Complex nested
 limits and font-specific operator spacing remain approximate.
+
+OMML equation-array fidelity: `m:eqArr` maps to a native
+`MathEquationArray`, preserving each direct `m:e` as a distinct row. Layout
+centers rows horizontally and expands them upward using Word-measured 0.75em
+row spacing; the last row retains the ordinary paragraph baseline. Missing
+rows log `omml_eq_arr_missing_rows`, and empty rows log
+`omml_eq_arr_empty_row`, without crashing. The centered two-row
+`math_eq_arr.docx` fixture improves against Word 16.0 from the flattened
+single line's MAE 0.025, RMSE 2.393, changed pixels 0.012%, SSIM 0.983577 to
+MAE 0.014, RMSE 1.729, changed pixels 0.008%, SSIM 0.999444 at 150 dpi (1/1
+page, exact size, deterministic). `eqArrPr` custom alignment, manual row
+spacing and blank-row height remain approximate.
 
 Manual page break fidelity: a paragraph whose only content is `w:br
 w:type="page"` keeps its mark-line height and trailing paragraph spacing

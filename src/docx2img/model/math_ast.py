@@ -107,6 +107,11 @@ class MathMatrix(MathNode):
 
 
 @dataclass
+class MathEquationArray(MathNode):
+    rows: List[MathNode] = field(default_factory=list)
+
+
+@dataclass
 class MathFunc(MathNode):
     name: str = "sin"
     arg: Optional[MathNode] = None

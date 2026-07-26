@@ -8,8 +8,8 @@ from typing import Optional, List
 
 from ..model.math_ast import (
     MathNode, MathChar, MathRunSeq, MathFrac, MathRad, MathSup, MathSub,
-    MathSubSup, MathNary, MathDelim, MathMatrix, MathFunc, MathBar,
-    MathAccent, MathBorderBox, MathLimit,
+    MathSubSup, MathNary, MathDelim, MathMatrix, MathEquationArray,
+    MathFunc, MathBar, MathAccent, MathBorderBox, MathLimit,
 )
 
 M = "http://schemas.openxmlformats.org/officeDocument/2006/math"
@@ -100,6 +100,24 @@ class OmmlParser:
                 limit=limit,
                 position="upper" if tag == "limUpp" else "lower",
             )
+        if tag == "eqArr":
+            rows = []
+            row_elements = elem.findall(f"{{{M}}}e")
+            for index, row_elem in enumerate(row_elements, start=1):
+                row = self._parse_children_seq(row_elem)
+                if row is None:
+                    logger.warning(
+                        "omml_eq_arr_empty_row: m:eqArr row %d "
+                        "has no renderable content",
+                        index,
+                    )
+                    continue
+                rows.append(row)
+            if not row_elements:
+                logger.warning(
+                    "omml_eq_arr_missing_rows: m:eqArr has no m:e rows"
+                )
+            return MathEquationArray(rows=rows)
         if tag == "sSup":
             return MathSup(base=self._child(elem, "e"), superscript=self._child(elem, "sup"))
         if tag == "sSub":
@@ -184,8 +202,8 @@ class OmmlParser:
             tag = child.tag.split("}")[-1]
             if tag in (
                 "rPr", "fPr", "radPr", "barPr", "accPr", "borderBoxPr",
-                "limUppPr", "limLowPr", "sSupPr", "sSubPr", "naryPr",
-                "dPr", "mPr", "ctrlPr",
+                "limUppPr", "limLowPr", "eqArrPr", "sSupPr", "sSubPr",
+                "naryPr", "dPr", "mPr", "ctrlPr",
             ):
                 continue
             node = self.parse_element(child)

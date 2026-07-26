@@ -14,6 +14,7 @@ from docx2img.model.math_ast import (
     MathAccent,
     MathBar,
     MathBorderBox,
+    MathEquationArray,
     MathLimit,
     MathFrac,
     MathSup,
@@ -162,6 +163,30 @@ class TestOmmlParser:
         assert "omml_limit_missing_base" in caplog.text
         assert "omml_limit_missing_value" in caplog.text
 
+    def test_equation_array_has_native_rows(self):
+        equations = OmmlParser().parse_xml(
+            (
+                '<m:oMath xmlns:m="http://schemas.openxmlformats.org/'
+                'officeDocument/2006/math"><m:eqArr>'
+                '<m:e><m:r><m:t>a=1</m:t></m:r></m:e>'
+                '<m:e><m:r><m:t>b=2</m:t></m:r></m:e>'
+                '</m:eqArr></m:oMath>'
+            ).encode("utf-8")
+        )
+        assert isinstance(equations, MathEquationArray)
+        assert len(equations.rows) == 2
+
+    def test_malformed_equation_array_warns_without_crashing(self, caplog):
+        with caplog.at_level("WARNING", logger="docx2img.parse.math_omml"):
+            equations = OmmlParser().parse_xml(
+                b'<m:oMath xmlns:m="http://schemas.openxmlformats.org/'
+                b'officeDocument/2006/math"><m:eqArr/>'
+                b"</m:oMath>"
+            )
+        assert isinstance(equations, MathEquationArray)
+        assert equations.rows == []
+        assert "omml_eq_arr_missing_rows" in caplog.text
+
 
 class TestMathLayoutRender:
     def test_layout_boxes_nonzero(self):
@@ -264,6 +289,26 @@ class TestMathLayoutRender:
                 assert value_text["y"] < base_top
             else:
                 assert value_text["y"] > base_bottom
+
+    def test_layout_equation_array_places_rows_vertically(self):
+        rows = [
+            OmmlParser().parse_xml(
+                (
+                    '<m:oMath xmlns:m="http://schemas.openxmlformats.org/'
+                    f'officeDocument/2006/math"><m:r><m:t>{text}</m:t>'
+                    "</m:r></m:oMath>"
+                ).encode("utf-8")
+            )
+            for text in ("a=1", "b=2")
+        ]
+        box = MathLayoutEngine(Config(dpi=96)).layout(
+            MathEquationArray(rows=rows),
+            14.0,
+        )
+        row_tops = sorted({text["y"] for text in box.texts})
+        assert len(row_tops) == 2
+        assert row_tops[1] > row_tops[0]
+        assert box.height > 0
 
     def test_parse_docx_math_runs(self):
         package = Unpacker(FIXTURES / "math.docx").unpack()

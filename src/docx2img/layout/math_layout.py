@@ -11,8 +11,8 @@ from ..config import Config
 from ..font.manager import FontManager
 from ..model.math_ast import (
     MathNode, MathChar, MathRunSeq, MathFrac, MathRad, MathSup, MathSub,
-    MathSubSup, MathNary, MathDelim, MathMatrix, MathFunc, MathBar,
-    MathAccent, MathBorderBox, MathLimit,
+    MathSubSup, MathNary, MathDelim, MathMatrix, MathEquationArray,
+    MathFunc, MathBar, MathAccent, MathBorderBox, MathLimit,
 )
 
 
@@ -70,6 +70,8 @@ class MathLayoutEngine:
             return self._delim(node, size_px)
         if isinstance(node, MathMatrix):
             return self._matrix(node, size_px)
+        if isinstance(node, MathEquationArray):
+            return self._equation_array(node, size_px)
         if isinstance(node, MathFunc):
             return self._func(node, size_px)
         return MathBox()
@@ -535,6 +537,41 @@ class MathLayoutEngine:
         out.width = sum(col_w) + pad * (ncols - 1)
         out.height = y - pad
         out.ascent = out.height * 0.8
+        out.descent = out.height - out.ascent
+        return out
+
+    def _equation_array(
+        self,
+        node: MathEquationArray,
+        size_px: float,
+    ) -> MathBox:
+        rows = [self._layout(row, size_px) for row in node.rows]
+        if not rows:
+            return MathBox()
+        width = max(row.width for row in rows)
+        gap = max(1.0, size_px * 0.75)
+        out = MathBox(width=width)
+        origin_y = -size_px * 0.40 * (len(rows) - 1)
+        y = origin_y
+        for row in rows:
+            x = (width - row.width) / 2.0
+            for text in row.texts:
+                out.texts.append({
+                    **text,
+                    "x": text["x"] + x,
+                    "y": text["y"] + y,
+                })
+            for line in row.lines:
+                out.lines.append({
+                    **line,
+                    "x1": line["x1"] + x,
+                    "x2": line["x2"] + x,
+                    "y1": line["y1"] + y,
+                    "y2": line["y2"] + y,
+                })
+            y += row.height + gap
+        out.height = y - gap - origin_y
+        out.ascent = out.height * 0.7
         out.descent = out.height - out.ascent
         return out
 
