@@ -55,6 +55,27 @@ def test_unsupported_simple_field_without_cache_warns(caplog):
     )
 
 
+def test_unsupported_complex_field_without_cache_warns(caplog):
+    xml = (
+        '<w:ftr xmlns:w="http://schemas.openxmlformats.org/'
+        'wordprocessingml/2006/main"><w:p>'
+        '<w:r><w:fldChar w:fldCharType="begin"/></w:r>'
+        '<w:r><w:instrText> REF missing </w:instrText></w:r>'
+        '<w:r><w:fldChar w:fldCharType="separate"/></w:r>'
+        '<w:r><w:fldChar w:fldCharType="end"/></w:r>'
+        "</w:p></w:ftr>"
+    ).encode()
+    parser = HeaderFooterParser(lambda elem: "parsed")
+    with caplog.at_level(logging.WARNING):
+        blocks = parser.parse(xml)
+    assert len(blocks) == 1
+    assert (
+        "header_footer_complex_field_unsupported: "
+        "REF has no cached result"
+        in caplog.text
+    )
+
+
 def test_date_fixture_expands_reference_time_during_layout(tmp_path):
     from fixtures.gen_fixtures import make_date_field
 

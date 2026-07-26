@@ -1976,14 +1976,18 @@ with the system clock advanced to `2099-12-31` measures MAE 0.323, RMSE 8.438,
 changed pixels 0.165%, and SSIM 0.980758, demonstrating the eliminated
 clock-dependent drift.
 
-For header/footer `w:fldSimple` instructions outside PAGE, NUMPAGES, and DATE,
-the field wrapper is not silently replaced with an empty run when OOXML
-contains a cached display result. Direct cached children are spliced back into
-the paragraph so normal parsing retains their run properties, and the parser
-logs `header_footer_field_cached: <TOKEN> rendered cached result`. A field with
-no cached children logs `header_footer_field_unsupported`. This is a visible
-fallback only: HYPERLINK target navigation is not evaluated, and unsupported
-complex begin/separate/end fields are still a separate limitation.
+For header/footer instructions outside PAGE, NUMPAGES, and DATE, neither
+`w:fldSimple` nor a flat complex
+`fldChar begin/instrText/separate/result/end` sequence is silently replaced
+with an empty run when OOXML contains a cached display result. Direct cached
+result runs are spliced back into the paragraph so normal parsing retains their
+run properties. Simple fields log
+`header_footer_field_cached: <TOKEN> rendered cached result`; flat complex
+fields log `header_footer_complex_field_cached`. A field with no cached text
+logs the corresponding `header_footer_field_unsupported` or
+`header_footer_complex_field_unsupported` warning. This is a visible fallback
+only: HYPERLINK target navigation is not evaluated, and nested complex fields
+remain unsupported.
 
 The code-generated `hyperlink_field.docx` isolates a footer `w:fldSimple`
 HYPERLINK with blue underlined cached text. Unmodified `3e43148` drops the
@@ -1992,6 +1996,14 @@ cached run and measures MAE 0.263, RMSE 7.429, changed pixels 0.14%, SSIM
 page at 1241x1754, is byte-deterministic, and measures MAE 0.254, RMSE 7.091,
 changed pixels 0.15%, SSIM 0.980814 at 150 dpi while emitting the explicit
 cached-fallback warning.
+
+The code-generated `hyperlink_complex_field.docx` uses the same visible
+content and styling but encodes HYPERLINK as a flat complex field. Unmodified
+`511af0c` drops the result between `separate` and `end` and measures MAE 0.263,
+RMSE 7.429, changed pixels 0.14%, SSIM 0.932564 against Word 16.0. Preserving
+that result produces the same 1/1 page at 1241x1754, is byte-deterministic, and
+measures MAE 0.254, RMSE 7.091, changed pixels 0.15%, SSIM 0.980814 at 150 dpi
+while emitting the explicit complex cached-fallback warning.
 
 Basic footnote fidelity: `Unpacker` loads `word/footnotes.xml`;
 `DocumentParser` maps each non-negative `w:footnote` ID to paragraph IR and

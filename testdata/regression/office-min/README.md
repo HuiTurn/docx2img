@@ -12,6 +12,7 @@ Cases are `basic_text`, `date_field`, `drawingml_text`, `endnote`,
 `endnote_continuation`, `footnote`, `footnote_continuation`,
 `footnote_line_continuation`, `footnote_multiple_continuation`,
 `footnote_reflow`, `footnote_wrap_continuation`, `hyperlink_field`,
+`hyperlink_complex_field`,
 `math_accent`, `math_bar`, `math_border_box`, `math_eq_arr`, `math_limit`,
 `page_break`, and `shape_fill`.
 `date_field.docx` has a stale cached DATE
@@ -22,6 +23,9 @@ compared without making the fixture itself time-dependent.
 does not contain a `wps:txbx/w:txbxContent` fallback.
 `hyperlink_field.docx` isolates a footer `w:fldSimple` HYPERLINK with a styled
 cached display result; link navigation is not part of the visual fixture.
+`hyperlink_complex_field.docx` isolates the same display as a flat
+`fldChar begin/instrText/separate/result/end` field sequence; nested fields and
+link navigation are outside this fixture.
 `endnote.docx` isolates one `w:endnoteReference` and one paragraph-only
 definition in `word/endnotes.xml`.
 `endnote_continuation.docx` isolates one 18-paragraph endnote that Word

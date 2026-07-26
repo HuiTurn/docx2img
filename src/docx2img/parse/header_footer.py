@@ -99,27 +99,73 @@ class HeaderFooterParser:
                 continue
             j = i + 1
             instr_parts = []
+            separate_index = None
+            end_index = None
             while j < len(children):
                 c2 = children[j]
                 t2 = c2.tag.split("}")[-1] if "}" in c2.tag else c2.tag
                 if t2 == "r":
                     instr = c2.find(f"{{{NS.W}}}instrText")
-                    if instr is not None and instr.text:
+                    if (
+                        separate_index is None
+                        and instr is not None
+                        and instr.text
+                    ):
                         instr_parts.append(instr.text)
                     fc = c2.find(f"{{{NS.W}}}fldChar")
-                    if fc is not None and fc.get(f"{{{NS.W}}}fldCharType") == "end":
-                        j += 1
-                        break
+                    if fc is not None:
+                        field_type = fc.get(f"{{{NS.W}}}fldCharType")
+                        if (
+                            field_type == "separate"
+                            and separate_index is None
+                        ):
+                            separate_index = j
+                        elif field_type == "end":
+                            end_index = j
+                            j += 1
+                            break
                 j += 1
-            placeholder = self.resolve_field_instr(" ".join(instr_parts), as_placeholder=True)
+            field_instr = " ".join(instr_parts)
+            placeholder = self.resolve_field_instr(
+                field_instr, as_placeholder=True
+            )
+            cached_children = (
+                children[separate_index + 1 : end_index]
+                if separate_index is not None and end_index is not None
+                else []
+            )
             for k in range(j - 1, i - 1, -1):
                 para_elem.remove(children[k])
-            r = ET.Element(f"{{{NS.W}}}r")
-            t = ET.SubElement(r, f"{{{NS.W}}}t")
-            t.text = placeholder
-            para_elem.insert(i, r)
+            inserted = []
+            if placeholder:
+                r = ET.Element(f"{{{NS.W}}}r")
+                t = ET.SubElement(r, f"{{{NS.W}}}t")
+                t.text = placeholder
+                inserted = [r]
+            else:
+                inserted = cached_children
+                token = self.field_token(field_instr)
+                has_cached_text = any(
+                    (text.text or "")
+                    for cached in cached_children
+                    for text in cached.iter(f"{{{NS.W}}}t")
+                )
+                if has_cached_text:
+                    logger.warning(
+                        "header_footer_complex_field_cached: %s rendered "
+                        "cached result",
+                        token,
+                    )
+                else:
+                    logger.warning(
+                        "header_footer_complex_field_unsupported: %s has "
+                        "no cached result",
+                        token,
+                    )
+            for offset, cached in enumerate(inserted):
+                para_elem.insert(i + offset, cached)
             children = list(para_elem)
-            i += 1
+            i += len(inserted)
 
     @staticmethod
     def field_token(instr: str) -> str:
