@@ -77,6 +77,7 @@ def test_office_cases_and_paths_isolated_from_libreoffice():
     assert "libreoffice" not in str(generate_office.GOLDEN_ROOT).replace("\\", "/")
     assert generate_office.GOLDEN_ROOT.name == "office"
     assert "basic_text" in generate_office.CASES
+    assert "body_alternate_content" in generate_office.CASES
     assert "body_custom_xml" in generate_office.CASES
     assert "body_sdt" in generate_office.CASES
     assert "date_field" in generate_office.CASES
@@ -133,6 +134,22 @@ def test_body_custom_xml_fixture_is_deterministic(tmp_path):
     a = make_body_custom_xml(tmp_path / "body_custom_xml.docx")
     h1 = generate_office.sha256(a)
     b = make_body_custom_xml(tmp_path / "body_custom_xml.docx")
+    h2 = generate_office.sha256(b)
+    assert h1 == h2
+    assert a.stat().st_size > 1000
+
+
+def test_body_alternate_content_fixture_is_deterministic(tmp_path):
+    """The block-level AlternateContent fixture must hash-stably regenerate."""
+    from fixtures.gen_fixtures import make_body_alternate_content
+
+    a = make_body_alternate_content(
+        tmp_path / "body_alternate_content.docx"
+    )
+    h1 = generate_office.sha256(a)
+    b = make_body_alternate_content(
+        tmp_path / "body_alternate_content.docx"
+    )
     h2 = generate_office.sha256(b)
     assert h1 == h2
     assert a.stat().st_size > 1000

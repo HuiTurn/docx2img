@@ -8,7 +8,8 @@ Used exclusively by the **office** (Microsoft Word) golden provider:
 - generate: `python scripts/generate_office_golden.py --case basic_text`
 - compare: `python scripts/run_visual_regression.py --provider office --case basic_text`
 
-Cases are `basic_text`, `body_custom_xml`, `body_sdt`, `date_field`,
+Cases are `basic_text`, `body_alternate_content`, `body_custom_xml`,
+`body_sdt`, `date_field`,
 `drawingml_text`, `endnote`,
 `endnote_continuation`, `footnote`, `footnote_continuation`,
 `footnote_line_continuation`, `footnote_multiple_continuation`,
@@ -40,6 +41,9 @@ fixture.
 `body_custom_xml.docx` isolates a direct styled paragraph in a block-level
 `w:customXml`; schema validation and data-store mapping are outside the
 fixture.
+`body_alternate_content.docx` isolates a block-level `mc:AlternateContent`
+whose `Requires="w"` Choice and visibly different Fallback each contain one
+styled paragraph. Extension-namespace content is outside this fixture.
 `endnote.docx` isolates one `w:endnoteReference` and one paragraph-only
 definition in `word/endnotes.xml`.
 `endnote_continuation.docx` isolates one 18-paragraph endnote that Word

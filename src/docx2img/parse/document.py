@@ -101,6 +101,8 @@ class DocumentParser:
                     self._parse_body_sdt(child, model)
                 elif tag == 'customXml':
                     self._parse_body_custom_xml(child, model)
+                elif child.tag == f"{{{NS.MC}}}AlternateContent":
+                    self._parse_body_alternate_content(child, model)
                 elif tag == 'sectPr':
                     section = self._parse_section(child)
                     if section:
@@ -164,6 +166,49 @@ class DocumentParser:
         )
         self._parse_body_container(elem, model)
 
+    def _parse_body_alternate_content(
+        self, elem, model: DocumentModel
+    ) -> None:
+        unsupported_requires = []
+        for choice in elem.findall(f"{{{NS.MC}}}Choice"):
+            requires = choice.get("Requires", "").split()
+            if requires and all(prefix == "w" for prefix in requires):
+                logger.warning(
+                    "body_alternate_content_choice: rendered Choice for "
+                    "supported Requires=%s",
+                    " ".join(requires),
+                )
+                before = (len(model.body), len(model.sections))
+                self._parse_body_container(choice, model)
+                if before == (len(model.body), len(model.sections)):
+                    logger.warning(
+                        "body_alternate_content_unsupported: selected Choice "
+                        "has no supported block content"
+                    )
+                return
+            unsupported_requires.extend(requires or ["<missing>"])
+
+        fallback = elem.find(f"{{{NS.MC}}}Fallback")
+        if fallback is not None:
+            logger.warning(
+                "body_alternate_content_fallback: rendered Fallback; "
+                "unsupported Requires=%s",
+                " ".join(unsupported_requires) or "<none>",
+            )
+            before = (len(model.body), len(model.sections))
+            self._parse_body_container(fallback, model)
+            if before == (len(model.body), len(model.sections)):
+                logger.warning(
+                    "body_alternate_content_unsupported: Fallback has no "
+                    "supported block content"
+                )
+            return
+
+        logger.warning(
+            "body_alternate_content_unsupported: no supported Choice or "
+            "Fallback"
+        )
+
     def _parse_body_container(self, container, model: DocumentModel) -> None:
         for child in container:
             tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
@@ -181,6 +226,8 @@ class DocumentParser:
                 self._parse_body_sdt(child, model)
             elif tag == "customXml":
                 self._parse_body_custom_xml(child, model)
+            elif child.tag == f"{{{NS.MC}}}AlternateContent":
+                self._parse_body_alternate_content(child, model)
 
     def _parse_footnotes(self, model: DocumentModel) -> None:
         if not self.package.footnotes_xml:

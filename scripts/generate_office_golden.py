@@ -39,6 +39,7 @@ GOLDEN_ROOT = REPO / "tests" / "golden" / "office"
 # Minimal code-generated fixtures (no external licensed corpus required).
 CASES = {
     "basic_text": "basic_text.docx",
+    "body_alternate_content": "body_alternate_content.docx",
     "body_custom_xml": "body_custom_xml.docx",
     "body_sdt": "body_sdt.docx",
     "date_field": "date_field.docx",
@@ -138,6 +139,7 @@ def ensure_fixture(case: str) -> Path:
     """Ensure the minimal office-min fixture exists (regenerate from builder)."""
     from fixtures.gen_fixtures import (
         make_basic_text,
+        make_body_alternate_content,
         make_body_custom_xml,
         make_body_sdt,
         make_date_field,
@@ -165,6 +167,7 @@ def ensure_fixture(case: str) -> Path:
 
     builders = {
         "basic_text": make_basic_text,
+        "body_alternate_content": make_body_alternate_content,
         "body_custom_xml": make_body_custom_xml,
         "body_sdt": make_body_sdt,
         "date_field": make_date_field,

@@ -121,6 +121,56 @@ def test_empty_body_custom_xml_warns_instead_of_silent_skip(caplog):
     )
 
 
+def test_body_alternate_content_uses_fallback_for_unknown_requires(caplog):
+    path = make_basic_text(FIXTURES / "basic_text.docx")
+    package = Unpacker(path).unpack()
+    parser = DocumentParser(package, Config())
+    parser.parse()
+    model = DocumentModel()
+    alternate = ET.fromstring(
+        f'<mc:AlternateContent xmlns:mc="{NS.MC}" xmlns:w="{NS.W}" '
+        'xmlns:future="urn:docx2img:future">'
+        '<mc:Choice Requires="future"><w:p><w:r><w:t>Choice</w:t>'
+        '</w:r></w:p></mc:Choice>'
+        '<mc:Fallback><w:p><w:r><w:t>Fallback</w:t></w:r></w:p>'
+        '</mc:Fallback></mc:AlternateContent>'
+    )
+
+    parser._parse_body_alternate_content(alternate, model)
+
+    assert len(model.body) == 1
+    assert "".join(
+        run.text.text for run in model.body[0].runs if run.text is not None
+    ) == "Fallback"
+    assert (
+        "body_alternate_content_fallback: rendered Fallback; unsupported "
+        "Requires=future" in caplog.text
+    )
+
+
+def test_body_alternate_content_without_usable_branch_warns(caplog):
+    path = make_basic_text(FIXTURES / "basic_text.docx")
+    package = Unpacker(path).unpack()
+    parser = DocumentParser(package, Config())
+    parser.parse()
+    model = DocumentModel()
+    alternate = ET.fromstring(
+        f'<mc:AlternateContent xmlns:mc="{NS.MC}" xmlns:w="{NS.W}" '
+        'xmlns:future="urn:docx2img:future">'
+        '<mc:Choice Requires="future"><w:p><w:r><w:t>Choice</w:t>'
+        '</w:r></w:p></mc:Choice>'
+        '</mc:AlternateContent>'
+    )
+
+    parser._parse_body_alternate_content(alternate, model)
+
+    assert model.body == []
+    assert (
+        "body_alternate_content_unsupported: no supported Choice or Fallback"
+        in caplog.text
+    )
+
+
 def test_parse_page_borders_with_independent_sides():
     path = make_basic_text(FIXTURES / "basic_text.docx")
     package = Unpacker(path).unpack()

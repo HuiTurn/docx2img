@@ -59,6 +59,7 @@ DOC_RELS = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 """
 
 NS_W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+NS_MC = "http://schemas.openxmlformats.org/markup-compatibility/2006"
 
 MINIMAL_STYLES = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
@@ -1013,6 +1014,39 @@ def make_body_custom_xml(path: Path) -> Path:
     return write_docx(path, _document(custom_xml + sect))
 
 
+def make_body_alternate_content(path: Path) -> Path:
+    """One-page document with a block-level markup-compatibility choice."""
+    alternate = f"""
+<mc:AlternateContent>
+  <mc:Choice Requires="w">
+    <w:p>
+      <w:pPr><w:jc w:val="center"/></w:pPr>
+      {_run("Alternate body choice", bold=True, color="2F5496")}
+    </w:p>
+  </mc:Choice>
+  <mc:Fallback>
+    <w:p>
+      <w:pPr><w:jc w:val="center"/></w:pPr>
+      {_run("Alternate body fallback", bold=True, color="C00000")}
+    </w:p>
+  </mc:Fallback>
+</mc:AlternateContent>"""
+    sect = (
+        '<w:sectPr>'
+        '<w:pgSz w:w="11906" w:h="16838"/>'
+        '<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" '
+        'w:header="720" w:footer="720" w:gutter="0"/>'
+        '</w:sectPr>'
+    )
+    document = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        f'<w:document xmlns:w="{NS_W}" xmlns:mc="{NS_MC}">'
+        f"<w:body>{alternate}{sect}</w:body>"
+        "</w:document>"
+    )
+    return write_docx(path, document)
+
+
 def make_date_field(path: Path) -> Path:
     """One-page footer DATE field with an intentionally stale cached result."""
     footer_xml = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -1954,6 +1988,7 @@ if __name__ == "__main__":
     make_header_sdt(out / "header_sdt.docx")
     make_body_sdt(out / "body_sdt.docx")
     make_body_custom_xml(out / "body_custom_xml.docx")
+    make_body_alternate_content(out / "body_alternate_content.docx")
     make_date_field(out / "date_field.docx")
     make_hyperlink_field(out / "hyperlink_field.docx")
     make_hyperlink_complex_field(out / "hyperlink_complex_field.docx")

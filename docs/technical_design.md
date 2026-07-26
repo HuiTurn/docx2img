@@ -2063,6 +2063,23 @@ Word 16.0. Static-content fallback produces the same 1/1 page at 1241x1754,
 is byte-deterministic, and measures MAE 0.034, RMSE 1.981, changed pixels
 0.03%, SSIM 0.998954 at 150 dpi.
 
+Document-body block-level `mc:AlternateContent` uses a conservative markup-
+compatibility selector before dispatching the selected branch through the
+shared block-container parser. The first Choice with a non-empty `Requires`
+list containing only `w` is selected; other extension prefixes are not
+advertised as understood and therefore fall through to `mc:Fallback`.
+Selection logs `body_alternate_content_choice` or
+`body_alternate_content_fallback`. Missing usable branches and selected
+branches without supported paragraph/table/SDT/custom-XML/nested-alternate
+blocks log `body_alternate_content_unsupported`.
+
+The code-generated `body_alternate_content.docx` isolates a centered styled
+paragraph in a `Requires="w"` Choice and a visibly different Fallback.
+Unmodified `8be7656` silently drops both branches and measures MAE 0.107, RMSE
+4.319, changed pixels 0.06%, SSIM 0.902343 against Word 16.0. Choice selection
+produces the same 1/1 page at 1241x1754, is byte-deterministic, and measures
+MAE 0.032, RMSE 1.809, changed pixels 0.03%, SSIM 0.999297 at 150 dpi.
+
 Basic footnote fidelity: `Unpacker` loads `word/footnotes.xml`;
 `DocumentParser` maps each non-negative `w:footnote` ID to paragraph IR and
 retains body `w:footnoteReference` IDs on their runs. After final pagination,

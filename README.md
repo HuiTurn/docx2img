@@ -53,7 +53,8 @@ and is **not** evidence of Word fidelity.
 
 Office corpus uses code-generated minimal fixtures under
 `testdata/regression/office-min/` (no third-party licensed DOCX required).
-Current office golden cases: `basic_text`, `body_custom_xml`, `body_sdt`,
+Current office golden cases: `basic_text`, `body_alternate_content`,
+`body_custom_xml`, `body_sdt`,
 `date_field`,
 `drawingml_text`,
 `endnote`, `endnote_continuation`, `footnote`, `footnote_continuation`,
@@ -131,6 +132,18 @@ data-store binding, and indirect wrapper types remain unsupported. The
 `body_custom_xml` Word 16.0 golden (150 dpi, 1/1 page, exact size,
 deterministic) improves from MAE 0.096, RMSE 4.100, changed pixels 0.06%,
 SSIM 0.912737 to MAE 0.034, RMSE 1.981, changed pixels 0.03%, SSIM 0.998954.
+
+Block-level `mc:AlternateContent` in the document body now selects the first
+`mc:Choice` whose `Requires` list contains only the understood standard `w`
+prefix, or otherwise renders `mc:Fallback`. Choice and fallback selection log
+`body_alternate_content_choice` or `body_alternate_content_fallback`; a wrapper
+without a usable branch, or a selected branch without supported block content,
+logs `body_alternate_content_unsupported`. Other extension prefixes are
+conservatively treated as unsupported rather than claiming partial namespace
+support. The `body_alternate_content` Word 16.0 golden (150 dpi, 1/1 page,
+exact size, deterministic) improves from MAE 0.107, RMSE 4.319, changed pixels
+0.06%, SSIM 0.902343 to MAE 0.032, RMSE 1.809, changed pixels 0.03%, SSIM
+0.999297.
 
 Basic paragraph-only footnotes now load `word/footnotes.xml`, retain
 `w:footnoteReference` in the run model, and render the referenced note at the
