@@ -2036,6 +2036,23 @@ Static-content fallback produces the same 1/1 page at 1241x1754, is
 byte-deterministic, and measures MAE 0.217, RMSE 6.652, changed pixels 0.13%,
 SSIM 0.981761 at 150 dpi.
 
+Header/footer block-level `mc:AlternateContent` is handled by
+`HeaderFooterParser._parse_block` before an unknown wrapper can disappear.
+The first Choice with a non-empty `Requires` list containing only `w` is
+selected; otherwise the Fallback is recursively dispatched through the same
+paragraph/table/SDT/alternate block parser. Selection logs
+`header_footer_alternate_content_choice` or
+`header_footer_alternate_content_fallback`. Missing usable branches and
+selected branches without supported blocks log
+`header_footer_alternate_content_unsupported`.
+
+The code-generated `header_alternate_content.docx` isolates a centered styled
+header paragraph in a `Requires="w"` Choice and a visibly different Fallback.
+Unmodified `3fd9aed` silently drops the wrapper and measures MAE 0.323, RMSE
+8.114, changed pixels 0.17%, SSIM 0.896082 against Word 16.0. Choice selection
+produces the same 1/1 page at 1241x1754, is byte-deterministic, and measures
+MAE 0.244, RMSE 7.049, changed pixels 0.14%, SSIM 0.980136 at 150 dpi.
+
 Document-body block-level `w:sdt` uses an analogous explicit fallback.
 `DocumentParser` appends direct paragraph/table children from `w:sdtContent`
 to the normal body sequence, recursively accepts nested SDTs, and retains

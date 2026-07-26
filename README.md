@@ -59,7 +59,8 @@ Current office golden cases: `basic_text`, `body_alternate_content`,
 `drawingml_text`,
 `endnote`, `endnote_continuation`, `footnote`, `footnote_continuation`,
 `footnote_line_continuation`, `footnote_multiple_continuation`,
-`footnote_reflow`, `footnote_wrap_continuation`, `header_sdt`, `header_table`,
+`footnote_reflow`, `footnote_wrap_continuation`, `header_alternate_content`,
+`header_sdt`, `header_table`,
 `hyperlink_field`,
 `hyperlink_complex_field`,
 `math_accent`, `math_bar`, `math_border_box`, `math_eq_arr`, `math_limit`,
@@ -114,6 +115,18 @@ without `w:sdtContent` logs `header_footer_sdt_unsupported`. The `header_sdt`
 Word 16.0 golden (150 dpi, 1/1 page, exact size, deterministic) improves from
 MAE 0.276, RMSE 7.516, changed pixels 0.15%, SSIM 0.909247 to MAE 0.217,
 RMSE 6.652, changed pixels 0.13%, SSIM 0.981761.
+
+Block-level `mc:AlternateContent` in headers and footers uses the same
+conservative compatibility rule as the document body: a Choice is selected
+only when its non-empty `Requires` list contains the understood standard `w`
+prefix; otherwise the Fallback is rendered. Selection logs
+`header_footer_alternate_content_choice` or
+`header_footer_alternate_content_fallback`; a missing usable branch or a
+selected branch without supported blocks logs
+`header_footer_alternate_content_unsupported`. The
+`header_alternate_content` Word 16.0 golden (150 dpi, 1/1 page, exact size,
+deterministic) improves from MAE 0.323, RMSE 8.114, changed pixels 0.17%, SSIM
+0.896082 to MAE 0.244, RMSE 7.049, changed pixels 0.14%, SSIM 0.980136.
 
 Block-level `w:sdt` controls in the document body now contribute their direct
 static paragraphs/tables from `w:sdtContent` to normal body flow while logging

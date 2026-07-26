@@ -10,6 +10,7 @@ from docx2img.parse.header_footer import (
     FIELD_DATE,
     HeaderFooterParser,
 )
+from docx2img.parse.namespaces import NS
 from docx2img.model.table import Table
 from docx2img.unpack.unpacker import Unpacker
 
@@ -138,6 +139,47 @@ def test_header_sdt_without_content_warns_instead_of_silent_skip(caplog):
     assert (
         "header_footer_sdt_unsupported: no sdtContent"
         in caplog.text
+    )
+
+
+def test_header_alternate_content_uses_fallback_for_unknown_requires(caplog):
+    xml = (
+        f'<w:hdr xmlns:w="{NS.W}" xmlns:mc="{NS.MC}" '
+        'xmlns:future="urn:docx2img:future">'
+        '<mc:AlternateContent>'
+        '<mc:Choice Requires="future"><w:p/></mc:Choice>'
+        '<mc:Fallback><w:p/></mc:Fallback>'
+        '</mc:AlternateContent></w:hdr>'
+    ).encode()
+    parser = HeaderFooterParser(lambda elem: "parsed")
+
+    with caplog.at_level(logging.WARNING):
+        blocks = parser.parse(xml)
+
+    assert blocks == ["parsed"]
+    assert (
+        "header_footer_alternate_content_fallback: rendered Fallback; "
+        "unsupported Requires=future" in caplog.text
+    )
+
+
+def test_header_alternate_content_without_usable_branch_warns(caplog):
+    xml = (
+        f'<w:hdr xmlns:w="{NS.W}" xmlns:mc="{NS.MC}" '
+        'xmlns:future="urn:docx2img:future">'
+        '<mc:AlternateContent>'
+        '<mc:Choice Requires="future"><w:p/></mc:Choice>'
+        '</mc:AlternateContent></w:hdr>'
+    ).encode()
+    parser = HeaderFooterParser(lambda elem: "parsed")
+
+    with caplog.at_level(logging.WARNING):
+        blocks = parser.parse(xml)
+
+    assert blocks == []
+    assert (
+        "header_footer_alternate_content_unsupported: no supported Choice "
+        "or Fallback" in caplog.text
     )
 
 

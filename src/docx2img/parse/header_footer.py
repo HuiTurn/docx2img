@@ -88,6 +88,52 @@ class HeaderFooterParser:
             for child in content:
                 blocks.extend(self._parse_block(child))
             return blocks
+        if elem.tag == f"{{{NS.MC}}}AlternateContent":
+            return self._parse_alternate_content(elem)
+        return []
+
+    def _parse_alternate_content(self, elem) -> List[Any]:
+        unsupported_requires = []
+        for choice in elem.findall(f"{{{NS.MC}}}Choice"):
+            requires = choice.get("Requires", "").split()
+            if requires and all(prefix == "w" for prefix in requires):
+                logger.warning(
+                    "header_footer_alternate_content_choice: rendered Choice "
+                    "for supported Requires=%s",
+                    " ".join(requires),
+                )
+                blocks = []
+                for child in choice:
+                    blocks.extend(self._parse_block(child))
+                if not blocks:
+                    logger.warning(
+                        "header_footer_alternate_content_unsupported: "
+                        "selected Choice has no supported block content"
+                    )
+                return blocks
+            unsupported_requires.extend(requires or ["<missing>"])
+
+        fallback = elem.find(f"{{{NS.MC}}}Fallback")
+        if fallback is not None:
+            logger.warning(
+                "header_footer_alternate_content_fallback: rendered "
+                "Fallback; unsupported Requires=%s",
+                " ".join(unsupported_requires) or "<none>",
+            )
+            blocks = []
+            for child in fallback:
+                blocks.extend(self._parse_block(child))
+            if not blocks:
+                logger.warning(
+                    "header_footer_alternate_content_unsupported: Fallback "
+                    "has no supported block content"
+                )
+            return blocks
+
+        logger.warning(
+            "header_footer_alternate_content_unsupported: no supported "
+            "Choice or Fallback"
+        )
         return []
 
     def _inject_field_placeholders(self, para_elem) -> None:

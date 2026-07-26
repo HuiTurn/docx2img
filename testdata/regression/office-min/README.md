@@ -13,7 +13,8 @@ Cases are `basic_text`, `body_alternate_content`, `body_custom_xml`,
 `drawingml_text`, `endnote`,
 `endnote_continuation`, `footnote`, `footnote_continuation`,
 `footnote_line_continuation`, `footnote_multiple_continuation`,
-`footnote_reflow`, `footnote_wrap_continuation`, `header_sdt`, `header_table`,
+`footnote_reflow`, `footnote_wrap_continuation`,
+`header_alternate_content`, `header_sdt`, `header_table`,
 `hyperlink_field`,
 `hyperlink_complex_field`,
 `math_accent`, `math_bar`, `math_border_box`, `math_eq_arr`, `math_limit`,
@@ -35,6 +36,10 @@ nested/floating tables or images related from the header part.
 `header_sdt.docx` isolates a block-level header `w:sdt` whose
 `w:sdtContent` contains one styled paragraph. Control chrome, binding,
 locking, and placeholder state are outside this fixture.
+`header_alternate_content.docx` isolates a block-level header
+`mc:AlternateContent` whose `Requires="w"` Choice and visibly different
+Fallback each contain one styled paragraph. Extension-namespace content is
+outside this fixture.
 `body_sdt.docx` isolates the analogous block-level body `w:sdt`; indirect
 wrapper types and content-control appearance/semantics are outside the
 fixture.
