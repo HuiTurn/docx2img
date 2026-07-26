@@ -1945,6 +1945,7 @@ tests/
 #   date_field  1/1 page  MAE 0.308  SSIM 0.982710  diff% 0.159%
 #   drawingml_text  1/1 page  MAE 0.554  SSIM 0.889565  diff% 0.317%
 #   endnote  1/1 page  MAE 0.122  SSIM 0.989004  diff% 0.063%
+#   endnote_continuation  2/2 pages  MAE 2.122  SSIM 0.936866  diff% 1.097%
 #   footnote  1/1 page  MAE 0.138  SSIM 0.990319  diff% 0.070%
 #   footnote_continuation  2/2 pages  MAE 2.845  SSIM 0.902276  diff% 1.486%
 #   footnote_reflow  2/2 pages  MAE 0.870  SSIM 0.925701  diff% 0.443%
@@ -2044,10 +2045,25 @@ The code-generated `endnote.docx` isolates one styled reference and one
 plain-text definition. Against Word 16.0 at 150 dpi it renders 1/1 page at
 the exact 1241x1754 reference size and is byte-deterministic. Relative to
 unmodified `afa62ff`, MAE improves 0.155 to 0.122, RMSE 6.126 to 5.145,
-changed pixels 0.067% to 0.063%, and SSIM 0.936571 to 0.989004. This remains
-a basic path: oversized definitions are not yet repaginated, and definition
-tables, custom numbering and section-specific separator content are not
-claimed supported.
+changed pixels 0.067% to 0.063%, and SSIM 0.936571 to 0.989004.
+
+For oversized paragraph-only definitions, a bounded document-end pagination
+pass measures paragraph boxes against the final page's remaining body area.
+It keeps the first fitting chunk after the body and inserts section-matched
+continuation pages for later chunks. Page labels and decorations are restamped
+after insertion, and continuation pages use the full-width separator. A
+paragraph taller than the available continuation page logs
+`endnote_continuation_unresolved`; the existing `endnote_layout_overflow`
+remains visible when pagination cannot safely resolve the content.
+
+The code-generated `endnote_continuation.docx` isolates one 18-paragraph
+definition on a short page. Unmodified `873d9e5` renders 1 page against Word's
+2 and measures MAE 2.869, RMSE 25.019, changed pixels 1.500%, SSIM 0.600922
+on the paired page. The continuation pass produces Word's exact 2/2 pages at
+1241x625, is byte-deterministic, and measures mean MAE 2.122, RMSE 21.517,
+changed pixels 1.097%, SSIM 0.936866 at 150 dpi. Continuation within one
+paragraph, definition tables, custom numbering and custom separator content
+are not claimed supported.
 
 OMML bar fidelity: `m:bar` maps to a native `MathBar` AST containing its body
 and top/bottom `m:pos`. `MathLayoutEngine` retains the body metrics and emits

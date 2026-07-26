@@ -80,6 +80,7 @@ def test_office_cases_and_paths_isolated_from_libreoffice():
     assert "date_field" in generate_office.CASES
     assert "drawingml_text" in generate_office.CASES
     assert "endnote" in generate_office.CASES
+    assert "endnote_continuation" in generate_office.CASES
     assert "footnote" in generate_office.CASES
     assert "footnote_continuation" in generate_office.CASES
     assert "footnote_reflow" in generate_office.CASES
@@ -150,6 +151,55 @@ def test_endnote_fixture_is_deterministic(tmp_path):
     h2 = generate_office.sha256(b)
     assert h1 == h2
     assert a.stat().st_size > 1000
+
+
+def test_endnote_continuation_fixture_is_deterministic(tmp_path):
+    """The multi-page endnote fixture must hash-stably regenerate."""
+    from fixtures.gen_fixtures import make_endnote_continuation
+
+    a = make_endnote_continuation(
+        tmp_path / "endnote_continuation.docx"
+    )
+    h1 = generate_office.sha256(a)
+    b = make_endnote_continuation(
+        tmp_path / "endnote_continuation.docx"
+    )
+    h2 = generate_office.sha256(b)
+    assert h1 == h2
+    assert a.stat().st_size > 1000
+
+
+def test_pdftoppm_falls_back_from_broken_managed_wrapper(
+    tmp_path, monkeypatch
+):
+    wrapper = tmp_path / "dependencies" / "bin" / "override" / "pdftoppm.CMD"
+    executable = (
+        tmp_path
+        / "dependencies"
+        / "native"
+        / "poppler"
+        / "Library"
+        / "bin"
+        / "pdftoppm.exe"
+    )
+    wrapper.parent.mkdir(parents=True)
+    executable.parent.mkdir(parents=True)
+    wrapper.write_text("@exit /b 3", encoding="utf-8")
+    executable.write_bytes(b"fake")
+    monkeypatch.setattr(generate_office.shutil, "which", lambda _: str(wrapper))
+
+    class Result:
+        def __init__(self, returncode):
+            self.returncode = returncode
+            self.stdout = ""
+            self.stderr = "broken wrapper" if returncode else "version"
+
+    monkeypatch.setattr(
+        generate_office.subprocess,
+        "run",
+        lambda cmd, **_: Result(0 if Path(cmd[0]) == executable else 3),
+    )
+    assert generate_office.find_pdftoppm() == str(executable)
 
 
 def test_footnote_reflow_fixture_is_deterministic(tmp_path):

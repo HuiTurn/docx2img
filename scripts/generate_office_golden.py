@@ -42,6 +42,7 @@ CASES = {
     "date_field": "date_field.docx",
     "drawingml_text": "drawingml_text.docx",
     "endnote": "endnote.docx",
+    "endnote_continuation": "endnote_continuation.docx",
     "footnote": "footnote.docx",
     "footnote_continuation": "footnote_continuation.docx",
     "footnote_reflow": "footnote_reflow.docx",
@@ -74,7 +75,44 @@ def find_pdftoppm() -> str:
     path = shutil.which("pdftoppm")
     if not path:
         raise SystemExit("ERROR: pdftoppm not found. Install Poppler first.")
-    return path
+    candidates = [Path(path)]
+    if Path(path).suffix.lower() in {".cmd", ".bat"}:
+        # Some managed Windows runtimes expose a stale/broken wrapper while
+        # the bundled executable remains healthy. Keep this dev-only fallback
+        # bounded to the wrapper's dependency root.
+        dependency_root = next(
+            (
+                parent
+                for parent in Path(path).parents
+                if parent.name.lower() == "dependencies"
+            ),
+            None,
+        )
+        if dependency_root is not None:
+            candidates.extend(
+                sorted(dependency_root.glob("**/pdftoppm.exe"))
+            )
+    failures = []
+    for candidate in candidates:
+        try:
+            proc = subprocess.run(
+                [str(candidate), "-v"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+        except OSError as exc:
+            failures.append(f"{candidate}: {exc}")
+            continue
+        if proc.returncode == 0:
+            return str(candidate)
+        detail = (proc.stderr or proc.stdout).strip()
+        failures.append(f"{candidate}: exit {proc.returncode}: {detail}")
+    raise SystemExit(
+        "ERROR: no working pdftoppm executable found. "
+        + " | ".join(failures)
+    )
 
 
 def tool_version(cmd: list) -> str:
@@ -94,6 +132,7 @@ def ensure_fixture(case: str) -> Path:
         make_date_field,
         make_drawingml_text,
         make_endnote,
+        make_endnote_continuation,
         make_footnote,
         make_footnote_continuation,
         make_footnote_reflow,
@@ -111,6 +150,7 @@ def ensure_fixture(case: str) -> Path:
         "date_field": make_date_field,
         "drawingml_text": make_drawingml_text,
         "endnote": make_endnote,
+        "endnote_continuation": make_endnote_continuation,
         "footnote": make_footnote,
         "footnote_continuation": make_footnote_continuation,
         "footnote_reflow": make_footnote_reflow,
@@ -225,23 +265,32 @@ def pdf_to_pngs(pdftoppm: str, pdf: Path, dest: Path, dpi: int) -> list:
         old.unlink()
     prefix = dest / "page"
     # -aa / -aaVector off for more deterministic rasterization across runs.
-    subprocess.run(
-        [
-            pdftoppm,
-            "-png",
-            "-r",
-            str(dpi),
-            "-aa",
-            "no",
-            "-aaVector",
-            "no",
-            str(pdf),
-            str(prefix),
-        ],
-        check=True,
-        capture_output=True,
-        timeout=1200,
-    )
+    try:
+        subprocess.run(
+            [
+                pdftoppm,
+                "-png",
+                "-r",
+                str(dpi),
+                "-aa",
+                "no",
+                "-aaVector",
+                "no",
+                str(pdf),
+                str(prefix),
+            ],
+            check=True,
+            capture_output=True,
+            timeout=1200,
+        )
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or b"").decode(
+            errors="replace"
+        ).strip()
+        raise RuntimeError(
+            f"pdftoppm failed for {pdf.name} (exit {exc.returncode}): "
+            f"{detail or 'no diagnostic output'}"
+        ) from exc
     pages = sorted(dest.glob("page-*.png"))
     if not pages:
         raise RuntimeError(f"pdftoppm produced no pages for {pdf.name}")

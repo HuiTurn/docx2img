@@ -1514,6 +1514,50 @@ def make_endnote(path: Path) -> Path:
     )
 
 
+def make_endnote_continuation(path: Path) -> Path:
+    """One multi-paragraph endnote that must continue onto page two."""
+    sect = (
+        "<w:sectPr>"
+        '<w:pgSz w:w="11906" w:h="6000"/>'
+        '<w:pgMar w:top="920" w:right="1800" w:bottom="920" w:left="1800" '
+        'w:header="720" w:footer="720" w:gutter="0"/>'
+        "</w:sectPr>"
+    )
+    body = _para(
+        _run("Body reference", size_half_pt=28, bare=True)
+        + '<w:r><w:rPr><w:vertAlign w:val="superscript"/>'
+        '<w:sz w:val="20"/></w:rPr>'
+        '<w:endnoteReference w:id="1"/></w:r>',
+        space_after=120,
+    )
+    note_paragraphs = (
+        '<w:p><w:r><w:rPr><w:vertAlign w:val="superscript"/>'
+        '<w:sz w:val="20"/></w:rPr><w:endnoteRef/></w:r>'
+        '<w:r><w:tab/></w:r><w:r><w:rPr><w:sz w:val="20"/></w:rPr>'
+        '<w:t>Endnote line 1</w:t></w:r></w:p>'
+    )
+    note_paragraphs += "".join(
+        '<w:p><w:r><w:rPr><w:sz w:val="20"/></w:rPr>'
+        f'<w:t>Endnote line {i}</w:t></w:r></w:p>'
+        for i in range(2, 19)
+    )
+    endnotes = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        f'<w:endnotes xmlns:w="{NS_W}">'
+        '<w:endnote w:type="separator" w:id="-1"><w:p><w:r>'
+        '<w:separator/></w:r></w:p></w:endnote>'
+        '<w:endnote w:type="continuationSeparator" w:id="0"><w:p><w:r>'
+        '<w:continuationSeparator/></w:r></w:p></w:endnote>'
+        f'<w:endnote w:id="1">{note_paragraphs}</w:endnote>'
+        '</w:endnotes>'
+    )
+    return write_docx(
+        path,
+        _document(body + sect),
+        endnotes_xml=endnotes,
+    )
+
+
 if __name__ == "__main__":
     out = Path(__file__).parent
     make_basic_text(out / "basic_text.docx")
@@ -1544,4 +1588,5 @@ if __name__ == "__main__":
     make_footnote_reflow(out / "footnote_reflow.docx")
     make_footnote_continuation(out / "footnote_continuation.docx")
     make_endnote(out / "endnote.docx")
+    make_endnote_continuation(out / "endnote_continuation.docx")
     print("Fixtures written to", out)

@@ -8,9 +8,10 @@ Used exclusively by the **office** (Microsoft Word) golden provider:
 - generate: `python scripts/generate_office_golden.py --case basic_text`
 - compare: `python scripts/run_visual_regression.py --provider office --case basic_text`
 
-Cases are `basic_text`, `date_field`, `drawingml_text`, `endnote`, `footnote`,
-`footnote_continuation`, `footnote_reflow`, `math_accent`, `math_bar`,
-`math_border_box`, `math_eq_arr`, `math_limit`, `page_break`, and `shape_fill`.
+Cases are `basic_text`, `date_field`, `drawingml_text`, `endnote`,
+`endnote_continuation`, `footnote`, `footnote_continuation`,
+`footnote_reflow`, `math_accent`, `math_bar`, `math_border_box`,
+`math_eq_arr`, `math_limit`, `page_break`, and `shape_fill`.
 `date_field.docx` has a stale cached DATE
 result so Word's
 read-only field update and the renderer's fixed `reference_datetime` can be
@@ -19,6 +20,8 @@ compared without making the fixture itself time-dependent.
 does not contain a `wps:txbx/w:txbxContent` fallback.
 `endnote.docx` isolates one `w:endnoteReference` and one paragraph-only
 definition in `word/endnotes.xml`.
+`endnote_continuation.docx` isolates one 18-paragraph endnote that Word
+continues onto a second short page.
 `footnote.docx` isolates one `w:footnoteReference` and one paragraph-only
 definition in `word/footnotes.xml`.
 `footnote_reflow.docx` fills a short page before a final reference paragraph,

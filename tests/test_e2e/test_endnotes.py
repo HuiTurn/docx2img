@@ -62,8 +62,11 @@ def test_oversized_endnote_layout_warns(tmp_path, caplog):
     docx = make_endnote(tmp_path / "endnote.docx")
     config = Config(dpi=96)
     model = DocumentParser(Unpacker(docx).unpack(), config).parse()
-    model.endnotes["1"] *= 80
+    for run in model.endnotes["1"][0].runs:
+        if run.text is not None and run.endnote_id is None:
+            run.text.text = "oversized endnote text " * 1000
     with caplog.at_level(logging.WARNING):
         pages = LayoutEngine(model, config).layout()
     assert pages[-1].endnote_blocks
+    assert "endnote_continuation_unresolved" in caplog.text
     assert "endnote_layout_overflow" in caplog.text

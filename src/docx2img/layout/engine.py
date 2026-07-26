@@ -85,6 +85,8 @@ class PageBox:
     footnote_continuation: bool = False
     endnote_blocks: List[BlockBox] = field(default_factory=list)
     endnote_separator: Optional[Tuple[float, float, float, int]] = None
+    endnote_paragraph_overrides: List[Paragraph] = field(default_factory=list)
+    endnote_continuation: bool = False
     float_boxes: List[Any] = field(default_factory=list)
     textbox_boxes: List[Any] = field(default_factory=list)
     width: float = 0.0
@@ -188,6 +190,11 @@ class LayoutEngine:
             self._stamp_and_attach_pages(all_pages)
         self._attach_footnotes(all_pages, warn_overlap=False)
         if self._reflow_footnote_overlaps(all_pages):
+            for page in all_pages:
+                page.header_blocks.clear()
+                page.footer_blocks.clear()
+            self._stamp_and_attach_pages(all_pages)
+        if self._paginate_oversized_endnotes(all_pages):
             for page in all_pages:
                 page.header_blocks.clear()
                 page.footer_blocks.clear()
@@ -634,16 +641,11 @@ class LayoutEngine:
 
         return changed
 
-    def _attach_endnotes(self, pages: List[PageBox]) -> None:
-        """Attach the basic paragraph-only endnote subset after body flow."""
-        if not pages:
-            return
-        for page in pages:
-            page.endnote_blocks.clear()
-            page.endnote_separator = None
-
+    def _referenced_endnote_paragraphs(self) -> List[Paragraph]:
+        """Return referenced endnote paragraphs in document order."""
         note_ids: List[str] = []
         seen = set()
+
         def iter_paragraphs(blocks):
             for block in blocks:
                 if isinstance(block, Paragraph):
@@ -659,54 +661,210 @@ class LayoutEngine:
                 if note_id is not None and note_id not in seen:
                     seen.add(note_id)
                     note_ids.append(note_id)
-        if not note_ids:
-            return
+        return [
+            paragraph
+            for note_id in note_ids
+            for paragraph in self.document.endnotes.get(note_id, [])
+        ]
+
+    def _paginate_oversized_endnotes(self, pages: List[PageBox]) -> bool:
+        """Split paragraph-only endnotes across document-end pages."""
+        if not pages:
+            return False
+        paragraphs = self._referenced_endnote_paragraphs()
+        if not paragraphs:
+            return False
 
         page = pages[-1]
         px_per_pt = self.config.px_per_pt
         content_width = page.width - page.margin_left - page.margin_right
-        note_blocks: List[BlockBox] = []
-        for note_id in note_ids:
-            for paragraph in self.document.endnotes.get(note_id, []):
-                note_blocks.extend(
-                    self._layout_paragraph(
-                        paragraph,
-                        page.margin_left,
-                        content_width,
-                        px_per_pt,
-                        apply_doc_grid=False,
-                    )
+        measured = []
+        for paragraph in paragraphs:
+            blocks = self._layout_paragraph(
+                paragraph,
+                page.margin_left,
+                content_width,
+                px_per_pt,
+                apply_doc_grid=False,
+            )
+            measured.append((paragraph, sum(block.height for block in blocks)))
+
+        gap_before = 10.5 * px_per_pt
+        gap_after = 6.5 * px_per_pt
+        first_marker_gap = -1.0 * px_per_pt
+        paragraph_gap = 1.5 * px_per_pt
+        continuation_gap_before = 8.5 * px_per_pt
+        layout_bottom_offset = 10.0 * px_per_pt
+
+        def gap_for(chunk_size, continuation=False):
+            if not chunk_size:
+                return 0.0
+            if continuation or chunk_size > 1:
+                return paragraph_gap
+            return first_marker_gap
+
+        def total_height(items, continuation=False):
+            used = 0.0
+            count = 0
+            for _, height in items:
+                used += gap_for(count, continuation) + height
+                count += 1
+            return used
+
+        first_capacity = max(
+            0.0,
+            page.height
+            - page.margin_bottom
+            + layout_bottom_offset
+            - self._page_content_bottom(page)
+            - gap_before
+            - gap_after,
+        )
+        if total_height(measured) <= first_capacity + 0.5:
+            return False
+        full_capacity = max(
+            0.0,
+            page.height
+            - page.margin_bottom
+            + layout_bottom_offset
+            - page.margin_top
+            - continuation_gap_before
+            - gap_after,
+        )
+        if any(height > full_capacity + 0.5 for _, height in measured):
+            logger.warning(
+                "endnote_continuation_unresolved: an endnote paragraph is "
+                "taller than one page"
+            )
+            return False
+
+        def take_chunk(items, capacity, continuation=False):
+            chunk = []
+            used = 0.0
+            while items:
+                required = (
+                    gap_for(len(chunk), continuation) + items[0][1]
                 )
-        if not note_blocks:
+                if used + required > capacity + 0.5:
+                    break
+                chunk.append(items[0][0])
+                used += required
+                items = items[1:]
+            return chunk, items
+
+        first_chunk, remaining = take_chunk(measured, first_capacity)
+        if first_chunk:
+            page.endnote_paragraph_overrides = first_chunk
+
+        insert_at = len(pages)
+        changed = False
+        while remaining:
+            chunk, remaining_after = take_chunk(
+                remaining, full_capacity, continuation=True
+            )
+            if not chunk:
+                logger.warning(
+                    "endnote_continuation_unresolved: continuation page "
+                    "cannot fit the next paragraph"
+                )
+                return False
+            continuation = PageBox(
+                width=page.width,
+                height=page.height,
+                margin_top=page.margin_top,
+                margin_bottom=page.margin_bottom,
+                margin_left=page.margin_left,
+                margin_right=page.margin_right,
+                section=page.section,
+                endnote_paragraph_overrides=chunk,
+                endnote_continuation=True,
+            )
+            pages.insert(insert_at, continuation)
+            insert_at += 1
+            changed = True
+            remaining = remaining_after
+        return changed or bool(page.endnote_paragraph_overrides)
+
+    def _attach_endnotes(self, pages: List[PageBox]) -> None:
+        """Attach the basic paragraph-only endnote subset after body flow."""
+        if not pages:
+            return
+        for page in pages:
+            page.endnote_blocks.clear()
+            page.endnote_separator = None
+
+        paragraphs = self._referenced_endnote_paragraphs()
+        if not paragraphs:
             return
 
-        separator_gap_before = 10.5 * px_per_pt
-        separator_gap_after = 6.5 * px_per_pt
-        separator_width = 144.0 * px_per_pt
-        separator_stroke = max(1, round(0.5 * px_per_pt))
-        body_bottom = self._page_content_bottom(page)
-        separator_y = body_bottom + separator_gap_before
-        y = separator_y + separator_gap_after
-        for block in note_blocks:
-            block.y = y
-            self._finalize_block_coords(block)
-            page.endnote_blocks.append(block)
-            y += block.height
-
-        if y > page.height - page.margin_bottom:
-            logger.warning(
-                "endnote_layout_overflow: page %s endnotes bottom %.2f exceeds "
-                "body area %.2f",
-                page.page_number,
-                y,
-                page.height - page.margin_bottom,
+        px_per_pt = self.config.px_per_pt
+        target_pages = [
+            page for page in pages if page.endnote_paragraph_overrides
+        ]
+        if not target_pages:
+            target_pages = [pages[-1]]
+        for page in target_pages:
+            content_width = (
+                page.width - page.margin_left - page.margin_right
             )
-        page.endnote_separator = (
-            page.margin_left,
-            separator_y,
-            page.margin_left + min(content_width, separator_width),
-            separator_stroke,
-        )
+            page_paragraphs = (
+                page.endnote_paragraph_overrides or paragraphs
+            )
+            note_blocks: List[BlockBox] = []
+            note_block_groups: List[List[BlockBox]] = []
+            for paragraph in page_paragraphs:
+                blocks = self._layout_paragraph(
+                    paragraph,
+                    page.margin_left,
+                    content_width,
+                    px_per_pt,
+                    apply_doc_grid=False,
+                )
+                note_blocks.extend(blocks)
+                note_block_groups.append(blocks)
+            if not note_blocks:
+                continue
+
+            separator_gap_before = (
+                (8.5 if page.endnote_continuation else 10.5) * px_per_pt
+            )
+            separator_gap_after = 6.5 * px_per_pt
+            separator_width = 144.0 * px_per_pt
+            separator_stroke = max(1, round(0.5 * px_per_pt))
+            body_bottom = self._page_content_bottom(page)
+            separator_y = body_bottom + separator_gap_before
+            y = separator_y + separator_gap_after
+            for group_index, group in enumerate(note_block_groups):
+                if group_index:
+                    if page.endnote_continuation or group_index > 1:
+                        y += 1.5 * px_per_pt
+                    else:
+                        y -= 1.0 * px_per_pt
+                for block in group:
+                    block.y = y
+                    self._finalize_block_coords(block)
+                    page.endnote_blocks.append(block)
+                    y += block.height
+
+            if y > page.height - page.margin_bottom + 10.0 * px_per_pt:
+                logger.warning(
+                    "endnote_layout_overflow: page %s endnotes bottom %.2f "
+                    "exceeds body area %.2f",
+                    page.page_number,
+                    y,
+                    page.height - page.margin_bottom,
+                )
+            page.endnote_separator = (
+                page.margin_left,
+                separator_y,
+                page.margin_left
+                + (
+                    content_width
+                    if page.endnote_continuation
+                    else min(content_width, separator_width)
+                ),
+                separator_stroke,
+            )
 
     @staticmethod
     def _block_has_ink(block: BlockBox) -> bool:

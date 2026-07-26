@@ -54,9 +54,9 @@ and is **not** evidence of Word fidelity.
 Office corpus uses code-generated minimal fixtures under
 `testdata/regression/office-min/` (no third-party licensed DOCX required).
 Current office golden cases: `basic_text`, `date_field`, `drawingml_text`,
-`endnote`, `footnote`, `footnote_continuation`, `footnote_reflow`,
-`math_accent`, `math_bar`, `math_border_box`, `math_eq_arr`, `math_limit`,
-`page_break`, `shape_fill`.
+`endnote`, `endnote_continuation`, `footnote`, `footnote_continuation`,
+`footnote_reflow`, `math_accent`, `math_bar`, `math_border_box`,
+`math_eq_arr`, `math_limit`, `page_break`, `shape_fill`.
 Word COM / Poppler `pdftoppm` are
 **dev-only**;
 `src/docx2img` must never import Office. First office golden introduction
@@ -119,9 +119,19 @@ overflow the last page emit stable `endnote_*` warnings. The one-reference
 `endnote` Word 16.0 golden (150 dpi, 1/1 page, exact size, deterministic)
 improves from MAE 0.155, RMSE 6.126, changed pixels 0.067%, SSIM 0.936571 to
 MAE 0.122, RMSE 5.145, changed pixels 0.063%, SSIM 0.989004. Multi-paragraph
-definitions and references inside table cells are included, but overflow
-pagination, custom numbering, definition tables and section-specific
-separator content remain unsupported or approximate.
+definitions and references inside table cells are included.
+
+Oversized paragraph-only endnotes now continue at paragraph boundaries onto
+inserted document-end pages. Continuation pages retain section geometry and
+decorations, participate in final PAGE / NUMPAGES stamping, and use a
+full-width continuation separator. The `endnote_continuation` Word 16.0
+golden (150 dpi, 1241×625) improves from a hard 1/2 page-count mismatch, MAE
+2.869, RMSE 25.019, changed pixels 1.500%, SSIM 0.600922 to exact 2/2 pages,
+MAE 2.122, RMSE 21.517, changed pixels 1.097%, SSIM 0.936866, with
+byte-identical repeated output. A definition paragraph taller than one page
+emits `endnote_continuation_unresolved` and retains
+`endnote_layout_overflow`. Continuation within a paragraph, custom numbering,
+definition tables and custom separator content are not claimed supported.
 
 OMML `m:bar` now has native `MathBar` AST and top/bottom rule layout instead
 of losing the bar while flattening its body. The isolated `math_bar` Word
