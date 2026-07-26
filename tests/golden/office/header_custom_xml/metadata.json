@@ -1,0 +1,30 @@
+{
+  "provider": "office",
+  "case": "header_custom_xml",
+  "input_docx": "header_custom_xml.docx",
+  "input_path": "testdata/regression/office-min/header_custom_xml.docx",
+  "input_sha256": "30f8aaaab87dc50a6f03883d9983bf93267a0be2e2328476b88142d6dbe8d9e0",
+  "word_version": "16.0",
+  "pdftoppm_version": "pdftoppm version 26.05.0",
+  "platform": "Windows-10-10.0.26200-SP0",
+  "python_version": "3.10.10",
+  "docx2img_version": "0.1.0",
+  "dpi": 150,
+  "color_mode": "RGB",
+  "background": [
+    255,
+    255,
+    255
+  ],
+  "reference_datetime": null,
+  "generated_at": "2026-07-26T16:02:03.214747+00:00",
+  "pdf_pages": 1,
+  "page_sizes_px": [
+    [
+      1241,
+      1754
+    ]
+  ],
+  "fonts_note": "Word used the host font environment; substitutions are not individually traced by ExportAsFixedFormat.",
+  "baseline_note": "First-introduction baseline: no global MAE/SSIM pass threshold. Subsequent slices must improve the target case without regressing existing office goldens."
+}

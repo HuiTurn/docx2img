@@ -14,7 +14,7 @@ Cases are `basic_text`, `body_alternate_content`, `body_custom_xml`,
 `endnote_continuation`, `footnote`, `footnote_continuation`,
 `footnote_line_continuation`, `footnote_multiple_continuation`,
 `footnote_reflow`, `footnote_wrap_continuation`,
-`header_alternate_content`, `header_sdt`, `header_table`,
+`header_alternate_content`, `header_custom_xml`, `header_sdt`, `header_table`,
 `hyperlink_field`,
 `hyperlink_complex_field`,
 `math_accent`, `math_bar`, `math_border_box`, `math_eq_arr`, `math_limit`,
@@ -40,6 +40,9 @@ locking, and placeholder state are outside this fixture.
 `mc:AlternateContent` whose `Requires="w"` Choice and visibly different
 Fallback each contain one styled paragraph. Extension-namespace content is
 outside this fixture.
+`header_custom_xml.docx` isolates a direct styled paragraph in a block-level
+header `w:customXml`; schema validation and data-store mapping are outside the
+fixture.
 `body_sdt.docx` isolates the analogous block-level body `w:sdt`; indirect
 wrapper types and content-control appearance/semantics are outside the
 fixture.

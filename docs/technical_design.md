@@ -2053,6 +2053,19 @@ Unmodified `3fd9aed` silently drops the wrapper and measures MAE 0.323, RMSE
 produces the same 1/1 page at 1241x1754, is byte-deterministic, and measures
 MAE 0.244, RMSE 7.049, changed pixels 0.14%, SSIM 0.980136 at 150 dpi.
 
+Header/footer block-level `w:customXml` recursively dispatches direct static
+blocks through `HeaderFooterParser._parse_block`. It logs
+`header_footer_custom_xml_fallback` because schema validation and data-store
+mapping are not modeled; a wrapper without supported blocks logs
+`header_footer_custom_xml_unsupported`.
+
+The code-generated `header_custom_xml.docx` isolates one centered styled
+paragraph in a header custom-XML wrapper. Unmodified `2eac4c1` silently drops
+it and measures MAE 0.268, RMSE 7.343, changed pixels 0.14%, SSIM 0.901450
+against Word 16.0. Static-content fallback produces the same 1/1 page at
+1241x1754, is byte-deterministic, and measures MAE 0.201, RMSE 6.334, changed
+pixels 0.12%, SSIM 0.981343 at 150 dpi.
+
 Document-body block-level `w:sdt` uses an analogous explicit fallback.
 `DocumentParser` appends direct paragraph/table children from `w:sdtContent`
 to the normal body sequence, recursively accepts nested SDTs, and retains

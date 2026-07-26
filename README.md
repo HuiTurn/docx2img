@@ -60,7 +60,7 @@ Current office golden cases: `basic_text`, `body_alternate_content`,
 `endnote`, `endnote_continuation`, `footnote`, `footnote_continuation`,
 `footnote_line_continuation`, `footnote_multiple_continuation`,
 `footnote_reflow`, `footnote_wrap_continuation`, `header_alternate_content`,
-`header_sdt`, `header_table`,
+`header_custom_xml`, `header_sdt`, `header_table`,
 `hyperlink_field`,
 `hyperlink_complex_field`,
 `math_accent`, `math_bar`, `math_border_box`, `math_eq_arr`, `math_limit`,
@@ -127,6 +127,14 @@ selected branch without supported blocks logs
 `header_alternate_content` Word 16.0 golden (150 dpi, 1/1 page, exact size,
 deterministic) improves from MAE 0.323, RMSE 8.114, changed pixels 0.17%, SSIM
 0.896082 to MAE 0.244, RMSE 7.049, changed pixels 0.14%, SSIM 0.980136.
+
+Block-level `w:customXml` wrappers in headers and footers expose their direct
+static blocks while logging `header_footer_custom_xml_fallback`; wrappers
+without supported blocks log `header_footer_custom_xml_unsupported`. Schema
+validation and custom-XML data-store mapping remain unsupported. The
+`header_custom_xml` Word 16.0 golden (150 dpi, 1/1 page, exact size,
+deterministic) improves from MAE 0.268, RMSE 7.343, changed pixels 0.14%, SSIM
+0.901450 to MAE 0.201, RMSE 6.334, changed pixels 0.12%, SSIM 0.981343.
 
 Block-level `w:sdt` controls in the document body now contribute their direct
 static paragraphs/tables from `w:sdtContent` to normal body flow while logging

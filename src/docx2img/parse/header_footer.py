@@ -88,6 +88,21 @@ class HeaderFooterParser:
             for child in content:
                 blocks.extend(self._parse_block(child))
             return blocks
+        if tag == "customXml":
+            blocks = []
+            for child in elem:
+                blocks.extend(self._parse_block(child))
+            if blocks:
+                logger.warning(
+                    "header_footer_custom_xml_fallback: rendered content "
+                    "without data mapping"
+                )
+            else:
+                logger.warning(
+                    "header_footer_custom_xml_unsupported: no supported "
+                    "block content"
+                )
+            return blocks
         if elem.tag == f"{{{NS.MC}}}AlternateContent":
             return self._parse_alternate_content(elem)
         return []

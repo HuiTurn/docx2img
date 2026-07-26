@@ -1008,6 +1008,43 @@ def make_header_alternate_content(path: Path) -> Path:
     )
 
 
+def make_header_custom_xml(path: Path) -> Path:
+    """One-page document with a block-level header custom XML wrapper."""
+    header_xml = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:hdr xmlns:w="{NS_W}">
+  <w:customXml w:uri="urn:docx2img:test" w:element="headerLabel">
+    <w:customXmlPr>
+      <w:attr w:name="kind" w:val="fixture"/>
+    </w:customXmlPr>
+    <w:p>
+      <w:pPr><w:jc w:val="center"/></w:pPr>
+      {_run("Custom XML header", bold=True, color="2F5496")}
+    </w:p>
+  </w:customXml>
+</w:hdr>"""
+    sect = (
+        '<w:sectPr>'
+        '<w:headerReference w:type="default" r:id="rId20" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/>'
+        '<w:pgSz w:w="11906" w:h="16838"/>'
+        '<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" '
+        'w:header="720" w:footer="720" w:gutter="0"/>'
+        '</w:sectPr>'
+    )
+    rels = [
+        '<Relationship Id="rId20" '
+        'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" '
+        'Target="header1.xml"/>',
+    ]
+    body = _para(_run("Header custom-XML fixture.", bare=True)) + sect
+    return write_docx(
+        path,
+        _document(body),
+        extra_rels=rels,
+        headers={"header1.xml": header_xml},
+    )
+
+
 def make_body_sdt(path: Path) -> Path:
     """One-page document with a block-level body content control."""
     sdt = f"""
@@ -2029,6 +2066,7 @@ if __name__ == "__main__":
     make_header_table(out / "header_table.docx")
     make_header_sdt(out / "header_sdt.docx")
     make_header_alternate_content(out / "header_alternate_content.docx")
+    make_header_custom_xml(out / "header_custom_xml.docx")
     make_body_sdt(out / "body_sdt.docx")
     make_body_custom_xml(out / "body_custom_xml.docx")
     make_body_alternate_content(out / "body_alternate_content.docx")

@@ -183,6 +183,24 @@ def test_header_alternate_content_without_usable_branch_warns(caplog):
     )
 
 
+def test_empty_header_custom_xml_warns_instead_of_silent_skip(caplog):
+    xml = (
+        f'<w:hdr xmlns:w="{NS.W}">'
+        '<w:customXml><w:customXmlPr/></w:customXml>'
+        '</w:hdr>'
+    ).encode()
+    parser = HeaderFooterParser(lambda elem: "parsed")
+
+    with caplog.at_level(logging.WARNING):
+        blocks = parser.parse(xml)
+
+    assert blocks == []
+    assert (
+        "header_footer_custom_xml_unsupported: no supported block content"
+        in caplog.text
+    )
+
+
 def test_date_fixture_expands_reference_time_during_layout(tmp_path):
     from fixtures.gen_fixtures import make_date_field
 
