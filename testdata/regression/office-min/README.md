@@ -8,5 +8,9 @@ Used exclusively by the **office** (Microsoft Word) golden provider:
 - generate: `python scripts/generate_office_golden.py --case basic_text`
 - compare: `python scripts/run_visual_regression.py --provider office --case basic_text`
 
+Cases are `basic_text`, `drawingml_text`, `page_break`, and `shape_fill`.
+`drawingml_text.docx` isolates native `a:sp/a:txSp/a:txBody` shape text and
+does not contain a `wps:txbx/w:txbxContent` fallback.
+
 Artifacts live under `tests/golden/office/` and `tests/output/office/`.
 Do not mix with `tests/golden/libreoffice/`.

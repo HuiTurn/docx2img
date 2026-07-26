@@ -185,6 +185,11 @@ class TextBoxRun:
     wrap_type: str = "square"
     fill: Optional[tuple] = None
     border_color: Optional[tuple] = None
+    margin_left: float = 0.0
+    margin_top: float = 0.0
+    margin_right: float = 0.0
+    margin_bottom: float = 0.0
+    vertical_anchor: str = "top"
 
 
 @dataclass

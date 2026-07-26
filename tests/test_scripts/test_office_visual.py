@@ -77,6 +77,7 @@ def test_office_cases_and_paths_isolated_from_libreoffice():
     assert "libreoffice" not in str(generate_office.GOLDEN_ROOT).replace("\\", "/")
     assert generate_office.GOLDEN_ROOT.name == "office"
     assert "basic_text" in generate_office.CASES
+    assert "drawingml_text" in generate_office.CASES
     assert "page_break" in generate_office.CASES
     assert "shape_fill" in generate_office.CASES
 
@@ -103,6 +104,56 @@ def test_shape_fill_fixture_is_deterministic(tmp_path):
     h2 = generate_office.sha256(b)
     assert h1 == h2
     assert a.stat().st_size > 1000
+
+
+def test_drawingml_text_fixture_is_deterministic(tmp_path):
+    """The a:txBody office fixture must hash-stably regenerate."""
+    from fixtures.gen_fixtures import make_drawingml_text
+
+    a = make_drawingml_text(tmp_path / "drawingml_text.docx")
+    h1 = generate_office.sha256(a)
+    b = make_drawingml_text(tmp_path / "drawingml_text.docx")
+    h2 = generate_office.sha256(b)
+    assert h1 == h2
+    assert a.stat().st_size > 1000
+
+
+def test_drawingml_text_fixture_parses_and_renders_deterministically(tmp_path):
+    """The native a:txBody path reaches model, layout, and rendered pixels."""
+    from docx2img import convert_to_images
+    from docx2img.config import Config
+    from docx2img.parse.document import DocumentParser
+    from docx2img.unpack.unpacker import Unpacker
+    from fixtures.gen_fixtures import make_drawingml_text
+
+    docx = make_drawingml_text(tmp_path / "drawingml_text.docx")
+    config = Config(dpi=96)
+    model = DocumentParser(Unpacker(docx).unpack(), config).parse()
+    textboxes = [
+        run.textbox
+        for paragraph in model.body
+        if hasattr(paragraph, "runs")
+        for run in paragraph.runs
+        if run.textbox is not None
+    ]
+    assert len(textboxes) == 1
+    textbox = textboxes[0]
+    assert textbox.vertical_anchor == "center"
+    assert textbox.paragraphs[0].runs[0].text.text == "DrawingML txBody"
+
+    first = convert_to_images(docx, config)
+    second = convert_to_images(docx, config)
+    assert len(first) == len(second) == 1
+    assert first[0].size == second[0].size
+    assert first[0].tobytes() == second[0].tobytes()
+    # Red shape text must reach the page image rather than silently vanishing.
+    rgb = first[0].convert("RGB").tobytes()
+    assert any(
+        rgb[index] > 120
+        and rgb[index] > rgb[index + 1] * 1.5
+        and rgb[index] > rgb[index + 2] * 1.5
+        for index in range(0, len(rgb), 3)
+    )
 
 
 def test_ensure_fixture_writes_minimal_docx(tmp_path, monkeypatch):

@@ -53,13 +53,13 @@ and is **not** evidence of Word fidelity.
 
 Office corpus uses code-generated minimal fixtures under
 `testdata/regression/office-min/` (no third-party licensed DOCX required).
-Current office golden cases: `basic_text`, `page_break`, `shape_fill`. Word
-COM / Poppler `pdftoppm` are **dev-only**; `src/docx2img` must never import
-Office. First office golden introduction records baseline metrics without a
-global MAE/SSIM pass threshold; later slices must improve the target case and
-not regress existing office goldens. Paragraph `auto` line spacing follows
-Word (`natural × line/240`), not the older LibreOffice-oriented floor-only
-formula.
+Current office golden cases: `basic_text`, `drawingml_text`, `page_break`,
+`shape_fill`. Word COM / Poppler `pdftoppm` are **dev-only**;
+`src/docx2img` must never import Office. First office golden introduction
+records baseline metrics without a global MAE/SSIM pass threshold; later
+slices must improve the target case and not regress existing office goldens.
+Paragraph `auto` line spacing follows Word (`natural × line/240`), not the
+older LibreOffice-oriented floor-only formula.
 
 Manual page breaks (`w:br w:type="page"`) preserve the invisible paragraph
 mark and its trailing paragraph spacing during page-fit checks. When that
@@ -74,6 +74,20 @@ Standalone DrawingML text boxes and autoshapes (`wps:wsp`/`w:txbxContent`
 inside `wp:anchor`) now keep their `a:solidFill` background and `a:ln` outline
 instead of rendering as bare text: the `shape_fill` office case quantifies
 this (Word 16.0, 150 dpi) at MAE ≈ 0.8, SSIM ≈ 0.97, diff% ≈ 0.6%.
+
+Native DrawingML shape text (`a:sp/a:txSp/a:txBody`) is no longer silently
+dropped. The basic subset maps `a:p`, `a:r`, cached `a:fld` text and `a:br`
+into the existing paragraph/run model; common run font, size, emphasis and
+sRGB color properties plus `a:bodyPr` insets/vertical anchoring are retained.
+Unsupported visible child nodes emit `drawingml_txbody_unsupported`; cached
+fields and unsupported theme colors emit their own stable approximation
+warnings.
+The code-generated `drawingml_text` Word 16.0 golden (150 dpi, 1/1 page,
+identical size, deterministic output) improved from the pre-change MAE 0.631,
+RMSE 11.400, changed pixels 0.339%, SSIM 0.652430 to MAE 0.554, RMSE 10.552,
+changed pixels 0.317%, SSIM 0.889565. Bullets, autofit, vertical/warped text,
+theme-color resolution and arbitrary DrawingML effects remain unsupported or
+approximate; this is a basic subset, not complete DrawingML text fidelity.
 
 LibreOffice corpus under `testdata/regression/sample-files-complex/` and
 optional metric-compatible fonts need redistribution licence review before

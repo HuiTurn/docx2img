@@ -2,11 +2,24 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable, Dict, Optional
 
-from ..model.paragraph import ImageRun, TextBoxRun
+from ..model.enums import Alignment
+from ..model.paragraph import (
+    BreakRun,
+    ImageRun,
+    Paragraph,
+    ParaProps,
+    Run,
+    RunProps,
+    TextBoxRun,
+    TextRun,
+)
 from .namespaces import NS, A, WP, PIC, R_DOC, W, WPG, WPS
 from .units import Units
+
+logger = logging.getLogger(__name__)
 
 
 class DrawingParser:
@@ -315,11 +328,13 @@ class DrawingParser:
         }
 
     def parse_textbox(self, drawing_el) -> Optional[TextBoxRun]:
-        """Parse DrawingML text box (wps:txbx or w:txbxContent)."""
+        """Parse w:txbxContent or native DrawingML a:txBody shape text."""
         # WordprocessingML text box content
         txbx = drawing_el.find(f".//{{{W}}}txbxContent")
-        if txbx is None:
-            # Alternate: a:txBody is shape text — skip for now
+        tx_body = (
+            drawing_el.find(f".//{{{A}}}txBody") if txbx is None else None
+        )
+        if txbx is None and tx_body is None:
             return None
 
         # Find extent from ancestor inline/anchor
@@ -343,13 +358,41 @@ class DrawingParser:
                 pos_y = Units.emu_to_pt(int(pos_v.text))
 
         paragraphs = []
-        if self._parse_para:
+        if txbx is not None and self._parse_para:
             for child in txbx:
                 tag = child.tag.split("}")[-1]
                 if tag == "p":
                     para = self._parse_para(child)
                     if para:
                         paragraphs.append(para)
+        elif tx_body is not None:
+            paragraphs = self._parse_drawingml_text_body(tx_body)
+
+        margins = (0.0, 0.0, 0.0, 0.0)
+        vertical_anchor = "top"
+        if tx_body is not None:
+            body_pr = tx_body.find(f"{{{A}}}bodyPr")
+            if body_pr is not None:
+                margin_names = ("lIns", "tIns", "rIns", "bIns")
+                parsed_margins = []
+                for name in margin_names:
+                    try:
+                        parsed_margins.append(
+                            Units.emu_to_pt(int(body_pr.get(name, "0")))
+                        )
+                    except ValueError:
+                        parsed_margins.append(0.0)
+                        logger.warning(
+                            "drawingml_txbody_invalid_inset: invalid %s=%r",
+                            name,
+                            body_pr.get(name),
+                        )
+                margins = tuple(parsed_margins)
+                vertical_anchor = {
+                    "t": "top",
+                    "ctr": "center",
+                    "b": "bottom",
+                }.get(body_pr.get("anchor", "t"), "top")
 
         # Preserve the shape's background fill and outline so standalone text
         # boxes / autoshapes are not rendered as bare text.  Word emits these
@@ -371,7 +414,140 @@ class DrawingParser:
             wrap_type=wrap_type,
             fill=fill,
             border_color=border,
+            margin_left=margins[0],
+            margin_top=margins[1],
+            margin_right=margins[2],
+            margin_bottom=margins[3],
+            vertical_anchor=vertical_anchor,
         )
+
+    def _parse_drawingml_text_body(self, tx_body) -> list:
+        """Convert the supported ``a:txBody`` subset to paragraph IR."""
+        paragraphs = []
+        unsupported_visible = set()
+
+        for p_el in tx_body.findall(f"{{{A}}}p"):
+            p_pr = p_el.find(f"{{{A}}}pPr")
+            alignment = Alignment.LEFT
+            if p_pr is not None:
+                alignment = {
+                    "l": Alignment.LEFT,
+                    "ctr": Alignment.CENTER,
+                    "r": Alignment.RIGHT,
+                    "just": Alignment.JUSTIFY,
+                    "justLow": Alignment.JUSTIFY,
+                    "dist": Alignment.DISTRIBUTE,
+                    "thaiDist": Alignment.DISTRIBUTE,
+                }.get(p_pr.get("algn", "l"), Alignment.LEFT)
+
+            paragraph = Paragraph(props=ParaProps(alignment=alignment))
+            for child in p_el:
+                tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+                if tag in ("pPr", "endParaRPr"):
+                    continue
+                if tag in ("r", "fld"):
+                    text_el = child.find(f"{{{A}}}t")
+                    if text_el is not None and text_el.text is not None:
+                        if tag == "fld":
+                            logger.warning(
+                                "drawingml_txbody_field_cached: rendering "
+                                "cached a:fld text without field evaluation"
+                            )
+                        paragraph.runs.append(
+                            Run(
+                                text=TextRun(
+                                    text=text_el.text,
+                                    props=self._parse_drawingml_run_props(
+                                        child.find(f"{{{A}}}rPr")
+                                    ),
+                                )
+                            )
+                        )
+                    elif self._has_visible_text(child):
+                        unsupported_visible.add(tag)
+                    continue
+                if tag == "br":
+                    paragraph.runs.append(Run(brk=BreakRun("line")))
+                    continue
+                if self._has_visible_text(child):
+                    unsupported_visible.add(tag)
+
+            paragraphs.append(paragraph)
+
+        if not paragraphs and self._has_visible_text(tx_body):
+            unsupported_visible.add("txBody")
+        if unsupported_visible:
+            logger.warning(
+                "drawingml_txbody_unsupported: visible text in unsupported "
+                "DrawingML node(s): %s",
+                ", ".join(sorted(unsupported_visible)),
+            )
+        return paragraphs
+
+    @staticmethod
+    def _has_visible_text(element) -> bool:
+        return any(text.strip() for text in element.itertext() if text)
+
+    @staticmethod
+    def _parse_drawingml_run_props(r_pr) -> RunProps:
+        props = RunProps()
+        if r_pr is None:
+            return props
+
+        size = r_pr.get("sz")
+        if size:
+            try:
+                props.font_size = int(size) / 100.0
+            except ValueError:
+                logger.warning(
+                    "drawingml_txbody_invalid_size: invalid a:rPr sz=%r", size
+                )
+
+        props.bold = r_pr.get("b", "0") in ("1", "true", "on")
+        props.italic = r_pr.get("i", "0") in ("1", "true", "on")
+
+        underline = r_pr.get("u")
+        if underline and underline != "none":
+            props.underline = True
+            props.underline_style = underline
+
+        strike = r_pr.get("strike")
+        props.strike = strike == "sngStrike"
+        props.double_strike = strike == "dblStrike"
+
+        solid = r_pr.find(f"{{{A}}}solidFill")
+        srgb = solid.find(f"{{{A}}}srgbClr") if solid is not None else None
+        if solid is not None and srgb is None:
+            logger.warning(
+                "drawingml_txbody_unsupported_color: only direct srgbClr "
+                "run colors are currently supported"
+            )
+        if srgb is not None:
+            value = srgb.get("val", "")
+            if len(value) == 6:
+                try:
+                    props.color = tuple(
+                        int(value[index : index + 2], 16)
+                        for index in (0, 2, 4)
+                    )
+                except ValueError:
+                    logger.warning(
+                        "drawingml_txbody_invalid_color: invalid srgbClr=%r",
+                        value,
+                    )
+
+        latin = r_pr.find(f"{{{A}}}latin")
+        east_asia = r_pr.find(f"{{{A}}}ea")
+        complex_script = r_pr.find(f"{{{A}}}cs")
+        if latin is not None and latin.get("typeface"):
+            props.font_ascii = latin.get("typeface")
+            props.font_h_ansi = latin.get("typeface")
+        if east_asia is not None and east_asia.get("typeface"):
+            props.font_east_asia = east_asia.get("typeface")
+        if complex_script is not None and complex_script.get("typeface"):
+            props.font_cs = complex_script.get("typeface")
+
+        return props
 
     def _parse_inline(self, el) -> Optional[ImageRun]:
         cx, cy = self._extent(el)

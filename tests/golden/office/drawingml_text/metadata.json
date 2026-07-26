@@ -1,0 +1,29 @@
+{
+  "provider": "office",
+  "case": "drawingml_text",
+  "input_docx": "drawingml_text.docx",
+  "input_path": "testdata/regression/office-min/drawingml_text.docx",
+  "input_sha256": "ac37c34e74377239e98ca2f1e3ab6cbcc1ae01f5f6b9e0e6c9a6c144fc8d51a2",
+  "word_version": "16.0",
+  "pdftoppm_version": "pdftoppm version 24.04.0",
+  "platform": "Windows-10-10.0.26200-SP0",
+  "python_version": "3.10.10",
+  "docx2img_version": "0.1.0",
+  "dpi": 150,
+  "color_mode": "RGB",
+  "background": [
+    255,
+    255,
+    255
+  ],
+  "generated_at": "2026-07-26T08:59:18.109118+00:00",
+  "pdf_pages": 1,
+  "page_sizes_px": [
+    [
+      1241,
+      1754
+    ]
+  ],
+  "fonts_note": "Word used the host font environment; substitutions are not individually traced by ExportAsFixedFormat.",
+  "baseline_note": "First-introduction baseline: no global MAE/SSIM pass threshold. Subsequent slices must improve the target case without regressing existing office goldens."
+}

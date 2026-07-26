@@ -4,6 +4,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
+from docx2img.model.enums import Alignment
 from docx2img.model.paragraph import Paragraph
 from docx2img.parse.drawing import DrawingParser
 from docx2img.parse.namespaces import A, NS, PIC, R_DOC, WP, WPG, WPS
@@ -140,3 +141,113 @@ def test_parse_textbox_no_shape_props_yields_no_fill():
     assert tbox is not None
     assert tbox.fill is None
     assert tbox.border_color is None
+
+
+def test_parse_textbox_converts_drawingml_txbody_to_native_model():
+    """Generic DrawingML shape text must not disappear outside wps:txbx."""
+    xml = f"""
+    <w:drawing xmlns:w="{NS.W}" xmlns:a="{A}" xmlns:wp="{WP}">
+      <wp:anchor>
+        <wp:positionH relativeFrom="column"><wp:posOffset>100000</wp:posOffset></wp:positionH>
+        <wp:positionV relativeFrom="paragraph"><wp:posOffset>200000</wp:posOffset></wp:positionV>
+        <wp:extent cx="2743200" cy="914400"/>
+        <wp:wrapNone/>
+        <a:graphic><a:graphicData>
+          <a:txSp>
+            <a:txBody>
+              <a:bodyPr lIns="91440" tIns="45720" rIns="91440"
+                        bIns="45720" anchor="ctr"/>
+              <a:lstStyle/>
+              <a:p>
+                <a:pPr algn="ctr"/>
+                <a:r>
+                  <a:rPr lang="en-US" sz="1800" b="1">
+                    <a:solidFill><a:srgbClr val="C00000"/></a:solidFill>
+                    <a:latin typeface="Times New Roman"/>
+                  </a:rPr>
+                  <a:t>DrawingML txBody</a:t>
+                </a:r>
+              </a:p>
+            </a:txBody>
+            <a:xfrm><a:off x="0" y="0"/><a:ext cx="2743200" cy="914400"/></a:xfrm>
+          </a:txSp>
+        </a:graphicData></a:graphic>
+      </wp:anchor>
+    </w:drawing>
+    """
+    tbox = DrawingParser().parse_textbox(ET.fromstring(xml))
+
+    assert tbox is not None
+    assert tbox.width_emu == 2743200
+    assert tbox.height_emu == 914400
+    assert tbox.wrap_type == "inFrontOf"
+    assert tbox.margin_left == pytest.approx(7.2)
+    assert tbox.margin_top == pytest.approx(3.6)
+    assert tbox.margin_right == pytest.approx(7.2)
+    assert tbox.margin_bottom == pytest.approx(3.6)
+    assert tbox.vertical_anchor == "center"
+    assert len(tbox.paragraphs) == 1
+    paragraph = tbox.paragraphs[0]
+    assert paragraph.props.alignment is Alignment.CENTER
+    assert len(paragraph.runs) == 1
+    text = paragraph.runs[0].text
+    assert text is not None
+    assert text.text == "DrawingML txBody"
+    assert text.props.font_size == 18.0
+    assert text.props.bold is True
+    assert text.props.color == (192, 0, 0)
+    assert text.props.font_ascii == "Times New Roman"
+    assert text.props.font_h_ansi == "Times New Roman"
+
+
+def test_parse_textbox_warns_when_visible_txbody_content_is_unsupported(caplog):
+    """Unsupported visible shape text must degrade visibly, without crashing."""
+    xml = f"""
+    <w:drawing xmlns:w="{NS.W}" xmlns:a="{A}" xmlns:wp="{WP}">
+      <wp:inline>
+        <wp:extent cx="1000" cy="1000"/>
+        <a:graphic><a:graphicData>
+          <a:txBody>
+            <a:bodyPr/><a:lstStyle/>
+            <a:p><a:futureText><a:t>must not vanish silently</a:t></a:futureText></a:p>
+          </a:txBody>
+        </a:graphicData></a:graphic>
+      </wp:inline>
+    </w:drawing>
+    """
+
+    with caplog.at_level("WARNING", logger="docx2img.parse.drawing"):
+        tbox = DrawingParser().parse_textbox(ET.fromstring(xml))
+
+    assert tbox is not None
+    assert len(tbox.paragraphs) == 1
+    assert tbox.paragraphs[0].runs == []
+    assert "drawingml_txbody_unsupported" in caplog.text
+
+
+def test_parse_txbody_warns_for_cached_field_and_unsupported_theme_color(caplog):
+    """Visible approximations remain rendered but are never silent."""
+    xml = f"""
+    <w:drawing xmlns:w="{NS.W}" xmlns:a="{A}" xmlns:wp="{WP}">
+      <wp:inline>
+        <wp:extent cx="1000" cy="1000"/>
+        <a:graphic><a:graphicData>
+          <a:txBody>
+            <a:bodyPr/><a:lstStyle/>
+            <a:p><a:fld id="{{field-id}}" type="slidenum">
+              <a:rPr><a:solidFill><a:schemeClr val="accent1"/></a:solidFill></a:rPr>
+              <a:t>7</a:t>
+            </a:fld></a:p>
+          </a:txBody>
+        </a:graphicData></a:graphic>
+      </wp:inline>
+    </w:drawing>
+    """
+
+    with caplog.at_level("WARNING", logger="docx2img.parse.drawing"):
+        tbox = DrawingParser().parse_textbox(ET.fromstring(xml))
+
+    assert tbox is not None
+    assert tbox.paragraphs[0].runs[0].text.text == "7"
+    assert "drawingml_txbody_field_cached" in caplog.text
+    assert "drawingml_txbody_unsupported_color" in caplog.text

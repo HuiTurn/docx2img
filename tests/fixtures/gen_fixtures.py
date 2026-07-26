@@ -1111,6 +1111,82 @@ def make_shape_fill(path: Path) -> Path:
     return write_docx(path, _document(body))
 
 
+def make_drawingml_text(path: Path) -> Path:
+    """DrawingML ``a:txBody`` text inside a standards-based locked canvas.
+
+    ``lc:lockedCanvas`` is a valid ``a:graphicData`` payload and may contain
+    ``a:sp/a:txSp/a:txBody`` shape text.  This deliberately avoids
+    ``wps:txbx/w:txbxContent`` so the office golden isolates the native
+    DrawingML text-body parser path.
+    """
+    cx, cy = 2743200, 914400  # 3" × 1"
+    drawing = (
+        "<w:r><w:drawing>"
+        '  <wp:anchor xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"'
+        '             xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"'
+        '             xmlns:lc="http://schemas.openxmlformats.org/drawingml/2006/lockedCanvas"'
+        '             distT="0" distB="0" distL="0" distR="0" simplePos="0"'
+        '             relativeHeight="251658240" behindDoc="0" locked="0"'
+        '             layoutInCell="1" allowOverlap="1">'
+        '    <wp:simplePos x="0" y="0"/>'
+        '    <wp:positionH relativeFrom="column"><wp:posOffset>457200</wp:posOffset></wp:positionH>'
+        '    <wp:positionV relativeFrom="paragraph"><wp:posOffset>228600</wp:posOffset></wp:positionV>'
+        f'    <wp:extent cx="{cx}" cy="{cy}"/>'
+        '    <wp:effectExtent l="0" t="0" r="0" b="0"/>'
+        "    <wp:wrapNone/>"
+        '    <wp:docPr id="41" name="DrawingML text body"/>'
+        "    <wp:cNvGraphicFramePr/>"
+        '    <a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/lockedCanvas">'
+        "      <lc:lockedCanvas>"
+        "        <a:nvGrpSpPr>"
+        '          <a:cNvPr id="1" name="Locked canvas"/>'
+        "          <a:cNvGrpSpPr/>"
+        "        </a:nvGrpSpPr>"
+        "        <a:grpSpPr><a:xfrm>"
+        '          <a:off x="0" y="0"/>'
+        f'          <a:ext cx="{cx}" cy="{cy}"/>'
+        '          <a:chOff x="0" y="0"/>'
+        f'          <a:chExt cx="{cx}" cy="{cy}"/>'
+        "        </a:xfrm></a:grpSpPr>"
+        "        <a:sp>"
+        "          <a:nvSpPr>"
+        '            <a:cNvPr id="2" name="DrawingML text shape"/>'
+        "            <a:cNvSpPr/>"
+        "          </a:nvSpPr>"
+        "          <a:spPr>"
+        f'            <a:xfrm><a:off x="0" y="0"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm>'
+        '            <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>'
+        "            <a:noFill/><a:ln><a:noFill/></a:ln>"
+        "          </a:spPr>"
+        "          <a:txSp>"
+        '          <a:txBody><a:bodyPr wrap="square" lIns="91440" tIns="45720"'
+        '              rIns="91440" bIns="45720" anchor="ctr"/>'
+        "            <a:lstStyle/>"
+        '            <a:p><a:pPr algn="ctr"/>'
+        '              <a:r><a:rPr lang="en-US" sz="1800" b="1">'
+        '                <a:solidFill><a:srgbClr val="C00000"/></a:solidFill>'
+        '                <a:latin typeface="Times New Roman"/>'
+        "              </a:rPr><a:t>DrawingML txBody</a:t></a:r>"
+        '              <a:endParaRPr lang="en-US" sz="1800"/>'
+        "            </a:p>"
+        "          </a:txBody>"
+        "            <a:useSpRect/>"
+        "          </a:txSp>"
+        "        </a:sp>"
+        "      </lc:lockedCanvas>"
+        "    </a:graphicData></a:graphic>"
+        "  </wp:anchor>"
+        "</w:drawing></w:r>"
+    )
+    body = (
+        _para(_run("Before DrawingML text.", bare=True))
+        + _para(drawing)
+        + _para(_run("After DrawingML text.", bare=True))
+        + _sect_pr()
+    )
+    return write_docx(path, _document(body))
+
+
 def make_math(path: Path) -> Path:
     """Inline OMML: fraction, superscript, radical, n-ary."""
     frac = (
@@ -1164,5 +1240,6 @@ if __name__ == "__main__":
     make_justify_tabs(out / "justify_tabs.docx")
     make_float_image(out / "float_image.docx")
     make_textbox(out / "textbox.docx")
+    make_drawingml_text(out / "drawingml_text.docx")
     make_math(out / "math.docx")
     print("Fixtures written to", out)

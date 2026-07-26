@@ -968,6 +968,8 @@ class LayoutEngine:
             # inline content area — expand block height so following paragraphs
             # don't overlap them.
             for tb in block.textbox_boxes:
+                if tb.get("wrap_type") in ("inFrontOf", "behind"):
+                    continue
                 gi_bottom = tb["y"] + tb["height"]
                 if gi_bottom > block.height:
                     block.height = gi_bottom
@@ -1107,17 +1109,52 @@ class LayoutEngine:
                 tb = run.textbox
                 w = Units.emu_to_px(tb.width_emu, self.config.dpi) if tb.width_emu else 120
                 h = Units.emu_to_px(tb.height_emu, self.config.dpi) if tb.height_emu else 60
+                inset_left = tb.margin_left * px_per_pt
+                inset_top = tb.margin_top * px_per_pt
+                inset_right = tb.margin_right * px_per_pt
+                inset_bottom = tb.margin_bottom * px_per_pt
                 inner_blocks = []
+                inner_y = 0.0
                 for p in tb.paragraphs:
-                    inner_blocks.extend(
-                        self._layout_paragraph(
-                            p,
-                            0,
-                            max(1.0, w - 8),
-                            px_per_pt,
-                            apply_doc_grid=False,
-                        )
+                    paragraph_blocks = self._layout_paragraph(
+                        p,
+                        inset_left,
+                        max(1.0, w - inset_left - inset_right),
+                        px_per_pt,
+                        apply_doc_grid=False,
                     )
+                    for inner_block in paragraph_blocks:
+                        inner_block.y += inner_y
+                        inner_y += inner_block.height
+                    inner_blocks.extend(paragraph_blocks)
+
+                usable_height = max(0.0, h - inset_top - inset_bottom)
+                ink_height = 0.0
+                for inner_block in inner_blocks:
+                    block_ink_height = inner_block.height
+                    if inner_block.lines:
+                        last_line = inner_block.lines[-1]
+                        last_line_ink = max(
+                            (glyph.height for glyph in last_line.glyphs),
+                            default=last_line.height,
+                        )
+                        block_ink_height = (
+                            inner_block.height - last_line.height + last_line_ink
+                        )
+                    ink_height = max(
+                        ink_height,
+                        inner_block.y + block_ink_height,
+                    )
+                extra_height = max(0.0, usable_height - ink_height)
+                if tb.vertical_anchor == "center":
+                    vertical_offset = extra_height / 2.0
+                elif tb.vertical_anchor == "bottom":
+                    vertical_offset = extra_height
+                else:
+                    vertical_offset = 0.0
+                for inner_block in inner_blocks:
+                    inner_block.y += inset_top + vertical_offset
+
                 block.textbox_boxes.append({
                     "x": tb.pos_x * px_per_pt,
                     "y": tb.pos_y * px_per_pt,

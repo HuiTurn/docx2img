@@ -1942,6 +1942,7 @@ tests/
 #
 # Office golden cases (Word 16.0, 150 dpi):
 #   basic_text  2/2 pages  MAE 2.16  SSIM 0.95
+#   drawingml_text  1/1 page  MAE 0.554  SSIM 0.889565  diff% 0.317%
 #   page_break  3/3 pages  MAE 0.565  SSIM 0.955725  diff% 0.284%
 #   shape_fill  1/1 pages  MAE 0.84  SSIM 0.97  diff% 0.6%
 ```
@@ -1967,6 +1968,28 @@ because only the group-shape path (`parse_group`) extracted them.
 `shape_fill` office golden quantifies this at MAE ≈ 0.84, SSIM ≈ 0.97 against
 Word 16.0 (150 dpi): the yellow/blue fills and red outline match, with only
 the border weight (1px canvas vs Word's 2pt) contributing residual diff.
+
+Native DrawingML shape text is supported as a deliberately bounded subset.
+`DrawingParser.parse_textbox` recognizes `a:sp/a:txSp/a:txBody` in addition
+to `w:txbxContent`, converts `a:p`, `a:r`, cached `a:fld` text and `a:br` to
+the existing paragraph/run IR, and maps paragraph alignment plus common font,
+size, emphasis, underline/strike and sRGB color properties. `a:bodyPr`
+left/top/right/bottom insets and top/center/bottom anchors are stored on
+`TextBoxRun`; the layout engine applies those insets, stacks nested paragraphs,
+centers against text ink height, and does not reserve body-flow height for
+`wrapNone`/in-front text boxes. Visible content under unknown child nodes logs
+`drawingml_txbody_unsupported`; cached fields and non-sRGB colors log
+`drawingml_txbody_field_cached` and `drawingml_txbody_unsupported_color`
+respectively instead of degrading silently.
+
+The code-generated `drawingml_text.docx` fixture contains only
+`a:sp/a:txSp/a:txBody` (no `wps:txbx` fallback). Against Word 16.0 at 150 dpi,
+the clean implementation produces 1/1 page at the exact reference size and is
+byte-deterministic. Relative to the unmodified parser, MAE improves
+0.631→0.554, RMSE 11.400→10.552, changed pixels 0.339%→0.317%, and SSIM
+0.652430→0.889565. This remains basic support: DrawingML bullets, autofit,
+vertical/warped text, theme-color resolution and arbitrary effects are not
+claimed complete.
 
 ---
 
