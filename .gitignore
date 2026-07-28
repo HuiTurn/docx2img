@@ -26,3 +26,4 @@ Thumbs.db
 .workbuddy/
 
 tests/output/
+verify_downloads/
