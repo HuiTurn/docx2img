@@ -1,4 +1,4 @@
-# doc2img
+# docx2img
 
 A pure Python `.docx` → image rendering engine. No Microsoft Office or LibreOffice required.
 
@@ -19,7 +19,7 @@ A pure Python `.docx` → image rendering engine. No Microsoft Office or LibreOf
 ## Installation
 
 ```bash
-pip install doc2img
+pip install docx2img
 ```
 
 ## Usage
