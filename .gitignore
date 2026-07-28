@@ -24,3 +24,5 @@ Thumbs.db
 
 # --- Agent working dir (WorkBuddy) ---
 .workbuddy/
+
+tests/output/

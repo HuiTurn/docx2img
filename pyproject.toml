@@ -3,11 +3,29 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "docx2img"
+name = "doc2img"
 version = "0.1.0"
 description = "Pure Python DOCX to Image rendering engine"
 readme = "README.md"
+license = {text = "MIT"}
 requires-python = ">=3.8"
+authors = [
+    {name = "HuiTurn", email = "xiaohuimc@hotmail.com"},
+]
+keywords = ["docx", "image", "render", "converter", "pillow"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Graphics",
+    "Topic :: Text Processing :: Markup",
+]
 dependencies = [
     "Pillow>=10.0",
     "fonttools>=4.40",
@@ -21,6 +39,11 @@ dev = [
 office = [
     "pywin32>=306; platform_system=='Windows'",
 ]
+
+[project.urls]
+Homepage = "https://github.com/HuiTurn/docx2img"
+Repository = "https://github.com/HuiTurn/docx2img"
+Issues = "https://github.com/HuiTurn/docx2img/issues"
 
 [project.scripts]
 docx2img = "docx2img.cli:main"
