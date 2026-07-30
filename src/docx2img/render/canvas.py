@@ -92,29 +92,70 @@ class RenderCanvas:
             self._render_block(block)
 
         # Text boxes
-        for tb in getattr(page, "textbox_boxes", []) or []:
+        for tb in sorted(
+            getattr(page, "textbox_boxes", []) or [],
+            key=lambda item: item.get("z", 0),
+        ):
             x, y, w, h = tb["x"], tb["y"], tb["width"], tb["height"]
 
             # Check if this is a line shape from WordprocessingGroup
             line_shape = tb.get("line_shape")
             if line_shape:
-                # Render as a horizontal or vertical line
+                # Render straight or elbow connectors, including VML arrows.
+                line_width_pt = line_shape.get("line_width_pt")
                 lw_emu = line_shape.get("line_width_emu", 12700)
                 color = line_shape.get("color", (0, 0, 0))
-                # Convert EMU line width to pixels (approximate: 1pt = 12700 EMU)
-                line_w_px = max(
-                    1, round(lw_emu / 12700 * self.config.px_per_pt)
-                )
-                self._draw.line([(x, y), (x + w, y + h)], fill=color, width=line_w_px)
+                if line_width_pt is not None:
+                    line_w_px = max(
+                        1, round(line_width_pt * self.config.px_per_pt)
+                    )
+                else:
+                    # 1pt = 12700 EMU
+                    line_w_px = max(
+                        1, round(lw_emu / 12700 * self.config.px_per_pt)
+                    )
+                local_points = line_shape.get("points") or [(0.0, 0.0), (w, h)]
+                points = [(x + px, y + py) for px, py in local_points]
+                self._draw.line(points, fill=color, width=line_w_px, joint="curve")
+                if line_shape.get("arrow_end") and len(points) >= 2:
+                    self._draw_arrow_head(
+                        points[-2], points[-1], color, line_w_px
+                    )
                 continue
 
+            shape_type = tb.get("shape_type", "rect")
             fill = tb.get("fill")
-            if fill:
-                self._draw.rectangle([x, y, x + w, y + h], fill=fill)
-            # Only draw an outline when the shape explicitly supplies one.
             border = tb.get("border")
-            if border is not None:
-                self._draw.rectangle([x, y, x + w, y + h], outline=border, width=1)
+            if shape_type == "diamond":
+                points = [
+                    (x + w / 2.0, y),
+                    (x + w, y + h / 2.0),
+                    (x + w / 2.0, y + h),
+                    (x, y + h / 2.0),
+                ]
+                if fill is not None:
+                    self._draw.polygon(points, fill=fill)
+                if border is not None:
+                    self._draw.line(
+                        points + [points[0]], fill=border, width=1
+                    )
+            elif shape_type == "oval":
+                if fill is not None:
+                    self._draw.ellipse([x, y, x + w, y + h], fill=fill)
+                if border is not None:
+                    self._draw.ellipse(
+                        [x, y, x + w, y + h], outline=border, width=1
+                    )
+            elif shape_type == "rect":
+                if fill is not None:
+                    self._draw.rectangle([x, y, x + w, y + h], fill=fill)
+                if border is not None:
+                    self._draw.rectangle(
+                        [x, y, x + w, y + h], outline=border, width=1
+                    )
+            elif fill is not None:
+                # Borderless VML text frames may still carry an opaque fill.
+                self._draw.rectangle([x, y, x + w, y + h], fill=fill)
             for ib in tb.get("blocks", []):
                 self._render_block(ib)
 
@@ -145,6 +186,28 @@ class RenderCanvas:
         self._draw_page_borders(page)
 
         return img
+
+    def _draw_arrow_head(self, start, end, color, line_width: int) -> None:
+        """Draw a small open arrow head at ``end``."""
+        dx, dy = end[0] - start[0], end[1] - start[1]
+        length = math.hypot(dx, dy)
+        if length < 0.5:
+            return
+        ux, uy = dx / length, dy / length
+        size = max(5.0, 4.0 + line_width * 1.5)
+        wing = size * 0.55
+        bx, by = end[0] - ux * size, end[1] - uy * size
+        px, py = -uy, ux
+        self._draw.line(
+            [end, (bx + px * wing, by + py * wing)],
+            fill=color,
+            width=line_width,
+        )
+        self._draw.line(
+            [end, (bx - px * wing, by - py * wing)],
+            fill=color,
+            width=line_width,
+        )
 
     def _render_block(self, block) -> None:
         if getattr(block, "table_box", None) is not None:

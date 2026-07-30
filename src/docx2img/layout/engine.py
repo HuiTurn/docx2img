@@ -1189,6 +1189,7 @@ class LayoutEngine:
             and section.doc_grid_type in ("lines", "linesAndChars")
             else None
         )
+        self.table_layout.grid_line_pitch_px = self._grid_line_pitch_px
         page_num = page.page_number
 
         def pick(bodies: dict, refs_prefer: list) -> list:
@@ -1378,6 +1379,7 @@ class LayoutEngine:
             and section.doc_grid_type in ("lines", "linesAndChars")
             else None
         )
+        self.table_layout.grid_line_pitch_px = self._grid_line_pitch_px
         page_width, page_height = self._page_size(section, px_per_pt)
         margin_top = section.margin_top * px_per_pt
         margin_bottom = section.margin_bottom * px_per_pt
@@ -1615,6 +1617,8 @@ class LayoutEngine:
         content_width: float,
         px_per_pt: float,
         apply_doc_grid: bool = True,
+        external_float_boxes: Optional[List[FloatBox]] = None,
+        paragraph_y: float = 0.0,
     ) -> List[BlockBox]:
         """Layout a paragraph. May return multiple blocks if hard page breaks occur."""
         props = para.props
@@ -1658,6 +1662,30 @@ class LayoutEngine:
 
         available_width = max(1.0, content_width - indent_left - indent_right)
         wrap_zones = self._para_wrap_zones(para, available_width, px_per_pt)
+        if external_float_boxes:
+            from .float_layout import ExclusionZone
+
+            content_x = x_offset + indent_left
+            for fb in external_float_boxes:
+                if fb.wrap_type not in ("square", "tight"):
+                    continue
+                local_y = fb.y - paragraph_y
+                if local_y + fb.height <= 0:
+                    continue
+                wrap_zones.append(
+                    ExclusionZone(
+                        y_start=local_y,
+                        y_end=local_y + fb.height,
+                        x_start=fb.x - content_x,
+                        x_end=fb.x - content_x + fb.width,
+                        wrap_type=fb.wrap_type,
+                    )
+                )
+        paragraph_grid_pitch = (
+            self._grid_line_pitch_px
+            if apply_doc_grid and props.snap_to_grid
+            else None
+        )
 
         lines = self.line_breaker.break_paragraph(
             para,
@@ -1665,9 +1693,7 @@ class LayoutEngine:
             px_per_pt,
             first_line_extra=first_line_extra,
             wrap_zones=wrap_zones,
-            grid_line_pitch_px=(
-                self._grid_line_pitch_px if apply_doc_grid else None
-            ),
+            grid_line_pitch_px=paragraph_grid_pitch,
         )
 
         # Prepend list label to first line
@@ -1831,9 +1857,10 @@ class LayoutEngine:
                     if has_tab:
                         pass
                     elif not (props.alignment == Alignment.JUSTIFY and is_last):
+                        hanging_end_width = getattr(line, "_hanging_end_width", 0.0)
                         apply_justification(
                             [line],
-                            max(1.0, line_avail),
+                            max(1.0, line_avail + hanging_end_width),
                             props.alignment,
                             justify_last=True,
                         )
@@ -1856,17 +1883,31 @@ class LayoutEngine:
                         tb = gi_data
                         w = Units.emu_to_px(tb.width_emu, self.config.dpi) if tb.width_emu else 120
                         h = Units.emu_to_px(tb.height_emu, self.config.dpi) if tb.height_emu else 60
+                        inset_l, inset_t, inset_r, inset_b = getattr(
+                            tb, "insets", (0.0, 0.0, 0.0, 0.0)
+                        )
+                        inset_l *= px_per_pt
+                        inset_t *= px_per_pt
+                        inset_r *= px_per_pt
+                        inset_b *= px_per_pt
                         inner_blocks = []
                         for p in tb.paragraphs:
                             inner_blocks.extend(
                                 self._layout_paragraph(
                                     p,
-                                    0,
-                                    max(1.0, w - 8),
+                                    inset_l,
+                                    max(1.0, w - inset_l - inset_r),
                                     px_per_pt,
                                     apply_doc_grid=False,
                                 )
                             )
+                        content_h = sum(ib.height for ib in inner_blocks)
+                        vertical_room = max(
+                            0.0, h - inset_t - inset_b - content_h
+                        )
+                        inner_y = inset_t + vertical_room / 2.0
+                        for ib in inner_blocks:
+                            ib.y += inner_y
                         block.textbox_boxes.append({
                             "x": self._textbox_anchor_x(tb, w, available_width, px_per_pt),
                             "y": tb.pos_y * px_per_pt,
@@ -1876,8 +1917,15 @@ class LayoutEngine:
                             "wrap_type": tb.wrap_type,
                             "fill": tb.fill,
                             "border": tb.border_color,
+                            "shape_type": getattr(tb, "shape_type", "rect"),
+                            "z": getattr(tb, "z_index", 0),
+                            "affects_flow": getattr(tb, "affects_flow", True),
                         })
                     elif gi_type == "line" and gi_data:
+                        points = [
+                            (x * px_per_pt, y * px_per_pt)
+                            for x, y in gi_data.get("points", [])
+                        ]
                         block.textbox_boxes.append({
                             "x": gi_data["x"] * px_per_pt,
                             "y": gi_data["y"] * px_per_pt,
@@ -1886,9 +1934,14 @@ class LayoutEngine:
                             "blocks": [],
                             "line_shape": {
                                 "line_width_emu": gi_data.get("line_width", 12700),
+                                "line_width_pt": gi_data.get("line_width_pt"),
                                 "color": gi_data.get("color", (0, 0, 0)),
+                                "points": points,
+                                "arrow_end": gi_data.get("arrow_end", False),
                             },
                             "wrap_type": "inFrontOf",
+                            "z": gi_data.get("z_index", 0),
+                            "affects_flow": gi_data.get("affects_flow", True),
                         })
 
             content_h = sum(line.height for line in seg_lines)
@@ -1910,9 +1963,7 @@ class LayoutEngine:
                     props,
                     natural,
                     px_per_pt,
-                    grid_line_pitch_px=(
-                        self._grid_line_pitch_px if apply_doc_grid else None
-                    ),
+                    grid_line_pitch_px=paragraph_grid_pitch,
                 )
             block.height = (
                 content_h
@@ -1921,7 +1972,9 @@ class LayoutEngine:
                 + block.border_pad_top
                 + block.border_pad_bottom
             )
-            # Paragraph-relative floats that stick into/below this block reserve space
+            # Paragraph-relative wrapping floats that stick into/below this
+            # block reserve space. `inFrontOf` is a wrapNone overlay and must
+            # not enlarge its anchor paragraph.
             for fb in block.float_boxes:
                 if fb.relative_y in ("page", "margin", "topMargin", "bottomMargin"):
                     continue  # absolute — handled at pagination
@@ -1930,13 +1983,6 @@ class LayoutEngine:
                     continue
                 if fb.wrap_type == "topAndBottom":
                     block.height = max(block.height, extent)
-                elif fb.wrap_type == "inFrontOf":
-                    # Cover header banners: push following text clear of the
-                    # artwork. Pure-white padding at the bottom of the frame is
-                    # not artwork — Word lets following text tuck underneath it,
-                    # so reserve space only down to the visible content.
-                    visible_h = fb.height * self._content_bottom_frac(fb.image)
-                    block.height = max(block.height, fb.y + visible_h)
                 elif fb.wrap_type in ("square", "tight") and not seg_lines:
                     block.height = max(block.height, extent)
                 # behind: no flow impact
@@ -1944,7 +1990,10 @@ class LayoutEngine:
             # inline content area — expand block height so following paragraphs
             # don't overlap them.
             for tb in block.textbox_boxes:
-                if tb.get("wrap_type") in ("inFrontOf", "behind"):
+                if (
+                    tb.get("wrap_type") in ("inFrontOf", "behind")
+                    or not tb.get("affects_flow", True)
+                ):
                     continue
                 gi_bottom = tb["y"] + tb["height"]
                 if gi_bottom > block.height:
@@ -1974,9 +2023,7 @@ class LayoutEngine:
                 props,
                 natural,
                 px_per_pt,
-                grid_line_pitch_px=(
-                    self._grid_line_pitch_px if apply_doc_grid else None
-                ),
+                grid_line_pitch_px=paragraph_grid_pitch,
             )
             block = BlockBox(
                 element=para,
@@ -2013,9 +2060,7 @@ class LayoutEngine:
             props,
             natural,
             px_per_pt,
-            grid_line_pitch_px=(
-                self._grid_line_pitch_px if apply_doc_grid else None
-            ),
+            grid_line_pitch_px=paragraph_grid_pitch,
         )
         return [
             BlockBox(
@@ -2067,6 +2112,28 @@ class LayoutEngine:
                     y_start=fy, y_end=fy + h,
                     x_start=x_start, x_end=x_end,
                     wrap_type=img.wrap_type or "square",
+                ))
+        for item in getattr(para, "group_items", []) or []:
+            if item.get("type") != "textbox":
+                continue
+            tb = item.get("data")
+            if tb is None or tb.wrap_type not in ("square", "tight", "topAndBottom"):
+                continue
+            w = Units.emu_to_px(tb.width_emu, self.config.dpi)
+            h = Units.emu_to_px(tb.height_emu, self.config.dpi)
+            fx = tb.pos_x * px_per_pt
+            fy = tb.pos_y * px_per_pt
+            if tb.wrap_type == "topAndBottom":
+                zones.append(ExclusionZone(
+                    y_start=fy, y_end=fy + h,
+                    x_start=-1e9, x_end=1e9,
+                    wrap_type="topAndBottom",
+                ))
+            else:
+                zones.append(ExclusionZone(
+                    y_start=fy, y_end=fy + h,
+                    x_start=fx, x_end=fx + w,
+                    wrap_type=tb.wrap_type,
                 ))
         return zones
 
@@ -2197,37 +2264,6 @@ class LayoutEngine:
             return max(0.0, avail - line_width)
         # LEFT / JUSTIFY / DISTRIBUTE — justify expands in-place
         return 0.0
-
-    def _content_bottom_frac(self, image) -> float:
-        """Fraction of image height down to the last non-white row.
-
-        Used for in-front cover banners: pure-white padding at the bottom of
-        the frame should not push body text down. Returns 1.0 when unknown.
-        """
-        if image is None:
-            return 1.0
-        key = id(image)
-        cached = getattr(self, "_content_frac_cache", None)
-        if cached is None:
-            cached = self._content_frac_cache = {}
-        if key in cached:
-            return cached[key]
-        frac = 1.0
-        try:
-            rgba = image.convert("RGBA")
-            white = PILImage.new("RGBA", rgba.size, (255, 255, 255, 255))
-            white.paste(rgba, (0, 0), rgba)
-            gray = white.convert("L")
-            mask = gray.point(lambda p: 255 if p < 245 else 0)
-            bbox = mask.getbbox()
-            if bbox:
-                frac = max(0.05, min(1.0, bbox[3] / float(image.size[1])))
-            else:
-                frac = 0.05  # fully white frame — keep a small sliver
-        except Exception:
-            frac = 1.0
-        cached[key] = frac
-        return frac
 
     def _layout_table(
         self, table: Table, x_offset: float, content_width: float, px_per_pt: float
@@ -2394,7 +2430,65 @@ class LayoutEngine:
             page = new_page()
             current_y = margin_top
 
-        def _apply_spacing_constraints(block: BlockBox, at_top: bool, suppress_before: bool) -> None:
+        def _relayout_for_page_floats(block: BlockBox) -> BlockBox:
+            """Reflow a paragraph around square/tight floats from prior blocks."""
+            if (
+                not isinstance(block.element, Paragraph)
+                or getattr(block, "_paragraph_continuation", False)
+                or block.table_box is not None
+                or block.float_boxes
+                or any(
+                    tb.get("affects_flow", True) for tb in block.textbox_boxes
+                )
+            ):
+                return block
+            relevant = [
+                fb
+                for fb in page.float_boxes
+                if fb.wrap_type in ("square", "tight")
+                and fb.y + fb.height > current_y + 0.5
+                and fb.y < current_y + max(block.height, 1.0)
+            ]
+            if not relevant:
+                return block
+            laid_out = self._layout_paragraph(
+                block.element,
+                margin_left,
+                page_width - margin_left - margin_right,
+                self.config.px_per_pt,
+                external_float_boxes=relevant,
+                paragraph_y=current_y,
+            )
+            if len(laid_out) != 1:
+                return block
+            reflowed = laid_out[0]
+            reflowed._external_float_reflow = True  # type: ignore[attr-defined]
+            return reflowed
+
+        def _keep_next_requirement(next_block: BlockBox) -> float:
+            """Minimum leading portion that must accompany a keepNext block."""
+            if next_block.table_box and next_block.table_box.row_heights:
+                # A table caption only needs the first complete row beside it;
+                # the remaining rows can continue on the following page.
+                return next_block.table_box.row_heights[0]
+            props = getattr(next_block.element, "props", None)
+            if (
+                isinstance(next_block.element, Paragraph)
+                and next_block.lines
+                and not getattr(props, "keep_lines", False)
+                and not next_block.float_boxes
+                and not next_block.textbox_boxes
+            ):
+                count = 2 if getattr(props, "widow_control", True) else 1
+                count = min(count, len(next_block.lines))
+                return next_block.space_before + sum(
+                    line.height for line in next_block.lines[:count]
+                )
+            return next_block.height
+
+        def _apply_spacing_constraints(
+            block: BlockBox, at_top: bool, suppress_before: bool
+        ) -> None:
             """Adjust block height for page-top space_before suppression and
             bottom-of-page space_after truncation."""
             # Suppress space_before at the top of a page/column — but only
@@ -2427,37 +2521,90 @@ class LayoutEngine:
 
         i = 0
         while i < len(blocks):
-            block = blocks[i]
+            block = _relayout_for_page_floats(blocks[i])
+            blocks[i] = block
             at_page_top = abs(current_y - margin_top) < 0.5
+            if (
+                at_page_top
+                and pages
+                and isinstance(block.element, Paragraph)
+                and not block.page_break_before
+                and not block.page_break_after
+                and not self._block_has_ink(block)
+                and not block.float_boxes
+                and not block.textbox_boxes
+            ):
+                # An empty paragraph that overflows from the preceding page
+                # is consumed at that page boundary by Word/WPS; it must not
+                # create a visible blank grid line at the top of the new page.
+                i += 1
+                continue
             _apply_spacing_constraints(block, at_page_top, _broke_page)
+            if (
+                i + 1 < len(blocks)
+                and isinstance(block.element, Paragraph)
+                and blocks[i + 1].table_box is not None
+                and block.lines
+                and len(block.lines) == 1
+            ):
+                # WPS gives a one-line table caption the CJK 1.5-line cell
+                # box (roughly 23.9pt at 10.5pt), even though the paragraph's
+                # inherited XML spacing remains "single".  Keep the text at
+                # its authored position and reserve the trailing leading
+                # before the table border.
+                caption_font_size = (
+                    getattr(block.element.props, "mark_font_size", None) or 10.5
+                )
+                caption_h = (
+                    caption_font_size
+                    * 1.52
+                    * 1.5
+                    * self.config.px_per_pt
+                )
+                block.height = max(block.height, caption_h)
 
             force_break = block.page_break_before and bool(page.blocks)
 
             # Soft overflow
             overflows = (current_y - margin_top + block.height) > available + 0.5
+            if (
+                overflows
+                and page.blocks
+                and isinstance(block.element, Paragraph)
+                and not block.page_break_before
+                and not block.page_break_after
+                and not self._block_has_ink(block)
+                and not block.float_boxes
+                and not block.textbox_boxes
+            ):
+                # Consume an otherwise empty trailing paragraph at the page
+                # boundary.  Moving it to the next page would manufacture a
+                # blank first line that Word/WPS do not display.
+                i += 1
+                continue
 
-            # Keep-with-next: when a paragraph has w:keepNext, Word forces a
-            # page break if the paragraph fits but its successor would overflow.
-            # Only applies when keepNext is explicitly set (not a generic
-            # heuristic for all short blocks).
+            # Honor explicit w:keepNext when the following visible block would
+            # otherwise be forced to a new page. Do not infer this from a
+            # paragraph merely being short: captions are commonly authored at
+            # the bottom of a page immediately before the next section.
             if (
                 not force_break
                 and not overflows
                 and page.blocks
                 and i + 1 < len(blocks)
                 and not block.table_box
+                and getattr(
+                    getattr(block.element, "props", None), "keep_next", False
+                )
                 and self._block_has_ink(block)
             ):
-                elem = block.element
-                has_keep_next = (
-                    isinstance(elem, Paragraph)
-                    and elem.props.keep_next
-                )
-                if has_keep_next:
-                    next_b = blocks[i + 1]
-                    remain_after = available - (current_y - margin_top + block.height)
-                    if remain_after + 0.5 < next_b.height and self._block_has_ink(next_b):
-                        force_break = True
+                next_b = blocks[i + 1]
+                remain_after = available - (current_y - margin_top + block.height)
+                if (
+                    remain_after + 0.5 < _keep_next_requirement(next_b)
+                    and self._block_has_ink(next_b)
+                ):
+                    force_break = True
 
             # Split a paragraph across the page boundary the way Word does:
             # the lines that fit stay on the current page and the remainder
@@ -2468,7 +2615,6 @@ class LayoutEngine:
             if (
                 overflows
                 and not force_break
-                and page.blocks
                 and block.table_box is None
                 and not block.float_boxes
                 and not block.textbox_boxes
@@ -2510,7 +2656,6 @@ class LayoutEngine:
             if (
                 overflows
                 and not force_break
-                and page.blocks
                 and block.table_box is not None
                 and len(block.table_box.row_heights) >= 2
             ):
@@ -2570,29 +2715,26 @@ class LayoutEngine:
                 page = new_page()
                 _broke_page = True
                 current_y = margin_top
-            # Re-check keep-with-next after band skip
+            # Re-check explicit keepNext after band skip.
             elif (
                 page.blocks
                 and i + 1 < len(blocks)
                 and not block.table_box
+                and getattr(
+                    getattr(block.element, "props", None), "keep_next", False
+                )
                 and self._block_has_ink(block)
             ):
-                elem = block.element
-                has_keep_next = (
-                    isinstance(elem, Paragraph)
-                    and elem.props.keep_next
-                )
-                if has_keep_next:
-                    next_b = blocks[i + 1]
-                    remain_after = available - (current_y - margin_top + block.height)
-                    if remain_after + 0.5 < next_b.height \
-                            and self._block_has_ink(next_b) and (
-                        current_y - margin_top + block.height
-                    ) <= available + 0.5:
-                        pages.append(page)
-                        page = new_page()
-                        _broke_page = True
-                        current_y = margin_top
+                next_b = blocks[i + 1]
+                remain_after = available - (current_y - margin_top + block.height)
+                if remain_after + 0.5 < _keep_next_requirement(next_b) \
+                        and self._block_has_ink(next_b) and (
+                    current_y - margin_top + block.height
+                ) <= available + 0.5:
+                    pages.append(page)
+                    page = new_page()
+                    _broke_page = True
+                    current_y = margin_top
 
             # Position block
             block.y = current_y

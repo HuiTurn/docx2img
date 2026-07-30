@@ -137,6 +137,9 @@ class ParaProps:
     # Both default to True (Word applies them unless explicitly disabled).
     auto_space_de: bool = True
     auto_space_dn: bool = True
+    # Whether text baselines snap to the section document grid. OOXML defaults
+    # this to on; individual paragraphs may opt out with w:snapToGrid w:val="0".
+    snap_to_grid: bool = True
     outline_level: Optional[int] = None
     # Numbering
     num_id: Optional[int] = None
@@ -213,6 +216,15 @@ class TextBoxRun:
     margin_right: float = 0.0
     margin_bottom: float = 0.0
     vertical_anchor: str = "top"
+    # Shape geometry. DrawingML text boxes default to a rectangle; legacy
+    # VML also uses diamonds and borderless text frames.
+    shape_type: str = "rect"  # rect / diamond / none
+    z_index: int = 0
+    # Anchored VML shapes are normally overlays. They must not make their host
+    # paragraph as tall as the shape, or flowcharts become giant blank pages.
+    affects_flow: bool = True
+    # Text insets in points: left, top, right, bottom.
+    insets: Tuple[float, float, float, float] = (3.6, 1.8, 3.6, 1.8)
 
 
 @dataclass

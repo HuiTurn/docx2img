@@ -33,6 +33,11 @@ WPG = "http://schemas.microsoft.com/office/word/2010/wordprocessingGroup"
 # WordprocessingShape (text boxes, shapes: wps:wsp)
 WPS = "http://schemas.microsoft.com/office/word/2010/wordprocessingShape"
 
+# Legacy VML drawings used by Word 97–2007 compatibility content.
+VML = "urn:schemas-microsoft-com:vml"
+OFFICE = "urn:schemas-microsoft-com:office:office"
+WORD_VML = "urn:schemas-microsoft-com:office:word"
+
 
 class NS:
     """Namespace map for ElementTree"""
@@ -48,6 +53,9 @@ class NS:
     MC = MC
     WPG = WPG
     WPS = WPS
+    VML = VML
+    OFFICE = OFFICE
+    WORD_VML = WORD_VML
 
     MAP = {
         "w": W,
@@ -60,6 +68,9 @@ class NS:
         "mc": MC,
         "wpg": WPG,
         "wps": WPS,
+        "v": VML,
+        "o": OFFICE,
+        "w10": WORD_VML,
     }
 
     @classmethod

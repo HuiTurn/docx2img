@@ -89,6 +89,29 @@ def _justify_line(line, available_width: float) -> None:
 
     content_w = sum(g.width for g in glyphs)
     extra = available_width - content_w
+    if extra < -0.5:
+        # Word/WPS use slight negative inter-character spacing to keep a
+        # nearly-fitting justified CJK line on the current row.  The line
+        # breaker normally permits at most 1.5% overflow.  A line with hanging
+        # end punctuation needs a little more compression because only half of
+        # that final glyph is allowed outside the text edge.
+        max_ratio = 1.035 if getattr(line, "_hanging_end_width", 0.0) else 1.016
+        if content_w <= available_width * max_ratio + 0.5:
+            gaps = [
+                i for i in range(len(glyphs) - 1)
+                if _is_cjkish(glyphs[i].text) or _is_cjkish(glyphs[i + 1].text)
+            ]
+            if gaps:
+                each = extra / len(gaps)
+                gap_set = set(gaps)
+                x = 0.0
+                for i, glyph in enumerate(glyphs):
+                    glyph.x = x
+                    x += glyph.width
+                    if i in gap_set:
+                        x += each
+                line.width = available_width
+        return
     if extra <= 0.5:
         return
 
@@ -126,3 +149,15 @@ def _justify_line(line, available_width: float) -> None:
             x += each
 
     line.width = available_width
+
+
+def _is_cjkish(text: str) -> bool:
+    if not text:
+        return False
+    cp = ord(text[-1])
+    return (
+        0x3000 <= cp <= 0x303F
+        or 0x3400 <= cp <= 0x4DBF
+        or 0x4E00 <= cp <= 0x9FFF
+        or 0xFF00 <= cp <= 0xFFEF
+    )

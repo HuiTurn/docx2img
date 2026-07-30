@@ -161,3 +161,73 @@ class TestLineBreakerWrapping:
             if i > 0:
                 assert not text.startswith(" "), repr(text)
             assert not text.endswith(" "), repr(text)
+    def test_cjk_wrap_keeps_last_fitting_character(self):
+        from docx2img.model.paragraph import Paragraph, Run, TextRun, RunProps
+
+        config = Config(dpi=96)
+        breaker = LineBreaker(config)
+        props = RunProps(font_size=12)
+        para = Paragraph(runs=[Run(text=TextRun(text="甲乙丙丁戊己", props=props))])
+        units = breaker._tokenize(
+            [(para.runs[0].text.text, props, None, None, None)],
+            config.px_per_pt,
+        )
+        char_width = units[0]["width"]
+
+        lines = breaker.break_paragraph(
+            para,
+            available_width=char_width * 4.5,
+            px_per_pt=config.px_per_pt,
+        )
+
+        assert "".join(g.text for g in lines[0].glyphs) == "甲乙丙丁"
+
+    def test_justified_cjk_allows_small_width_compression(self):
+        from docx2img.model.enums import Alignment
+        from docx2img.model.paragraph import Paragraph, Run, TextRun, RunProps
+
+        config = Config(dpi=96)
+        breaker = LineBreaker(config)
+        props = RunProps(font_size=12)
+        text = "甲" * 30
+        para = Paragraph(runs=[Run(text=TextRun(text=text, props=props))])
+        para.props.alignment = Alignment.JUSTIFY
+        units = breaker._tokenize(
+            [(text, props, None, None, None)],
+            config.px_per_pt,
+        )
+        char_width = units[0]["width"]
+
+        lines = breaker.break_paragraph(
+            para,
+            available_width=char_width * 29.8,
+            px_per_pt=config.px_per_pt,
+        )
+
+        assert len(lines) == 1
+
+    def test_justified_cjk_hangs_closing_punctuation_at_right_edge(self):
+        from docx2img.model.enums import Alignment
+        from docx2img.model.paragraph import Paragraph, Run, TextRun, RunProps
+
+        config = Config(dpi=96)
+        breaker = LineBreaker(config)
+        props = RunProps(font_size=12)
+        text = "甲" * 28 + "；" + "乙" * 28
+        para = Paragraph(runs=[Run(text=TextRun(text=text, props=props))])
+        para.props.alignment = Alignment.JUSTIFY
+        units = breaker._tokenize(
+            [(text, props, None, None, None)],
+            config.px_per_pt,
+        )
+        char_width = units[0]["width"]
+
+        lines = breaker.break_paragraph(
+            para,
+            available_width=char_width * 27.8,
+            px_per_pt=config.px_per_pt,
+        )
+
+        assert len(lines) == 2
+        assert "".join(g.text for g in lines[0].glyphs).endswith("；")
+        assert getattr(lines[0], "_hanging_end_width", 0.0) > 0

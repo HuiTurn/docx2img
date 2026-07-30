@@ -5,9 +5,16 @@ import xml.etree.ElementTree as ET
 import pytest
 
 from docx2img.model.enums import Alignment
+from docx2img.config import Config
+from docx2img.layout.engine import LayoutEngine
+from docx2img.model.document import DocumentModel
 from docx2img.model.paragraph import Paragraph
+from docx2img.model.section import Section
 from docx2img.parse.drawing import DrawingParser
-from docx2img.parse.namespaces import A, NS, PIC, R_DOC, WP, WPG, WPS
+from docx2img.parse.namespaces import (
+    A, NS, OFFICE, PIC, R_DOC, VML, WORD_VML, WP, WPG, WPS
+)
+from docx2img.render.canvas import RenderCanvas
 
 
 def test_parse_group_applies_child_coordinate_transform():
@@ -251,3 +258,62 @@ def test_parse_txbody_warns_for_cached_field_and_unsupported_theme_color(caplog)
     assert tbox.paragraphs[0].runs[0].text.text == "7"
     assert "drawingml_txbody_field_cached" in caplog.text
     assert "drawingml_txbody_unsupported_color" in caplog.text
+def test_parse_legacy_vml_flowchart_shapes_and_arrow():
+    xml = f"""
+    <w:pict xmlns:w="{NS.W}" xmlns:v="{VML}" xmlns:o="{OFFICE}"
+            xmlns:w10="{WORD_VML}">
+      <v:shape o:spt="109"
+        style="position:absolute;margin-left:20pt;margin-top:3pt;
+               width:100pt;height:24pt;z-index:12">
+        <v:textbox inset="4pt,2pt,4pt,2pt">
+          <w:txbxContent><w:p><w:r><w:t>Process</w:t></w:r></w:p></w:txbxContent>
+        </v:textbox>
+      </v:shape>
+      <v:shape o:spt="110" fillcolor="#ffeecc"
+        style="position:absolute;margin-left:30pt;margin-top:40pt;
+               width:80pt;height:40pt">
+        <v:textbox>
+          <w:txbxContent><w:p><w:r><w:t>Decision</w:t></w:r></w:p></w:txbxContent>
+        </v:textbox>
+      </v:shape>
+      <v:line style="position:absolute;margin-left:70pt;margin-top:27pt;
+                     width:0pt;height:13pt" strokeweight="1.5pt">
+        <v:stroke color="#123456" endarrow="open"/>
+      </v:line>
+    </w:pict>
+    """
+    parser = DrawingParser(para_parser=lambda _elem: Paragraph())
+    items = parser.parse_vml(ET.fromstring(xml))
+
+    assert [item["type"] for item in items] == ["textbox", "textbox", "line"]
+    process = items[0]["data"]
+    assert process.pos_x == pytest.approx(20)
+    assert process.pos_y == pytest.approx(3)
+    assert process.width_emu == 100 * 12700
+    assert process.shape_type == "rect"
+    assert process.border_color == (0, 0, 0)
+    assert process.affects_flow is False
+    assert process.insets == pytest.approx((4, 2, 4, 2))
+
+    decision = items[1]["data"]
+    assert decision.shape_type == "diamond"
+    assert decision.fill == (255, 238, 204)
+
+    line = items[2]["data"]
+    assert line["height"] == pytest.approx(13)
+    assert line["line_width_pt"] == pytest.approx(1.5)
+    assert line["color"] == (18, 52, 86)
+    assert line["arrow_end"] is True
+
+    host = Paragraph(group_items=items)
+    model = DocumentModel(body=[host], sections=[Section()])
+    config = Config(dpi=96)
+    pages = LayoutEngine(model, config).layout()
+    assert len(pages[0].textbox_boxes) == 3
+    assert any(box.get("shape_type") == "diamond" for box in pages[0].textbox_boxes)
+    assert any(
+        box.get("line_shape", {}).get("arrow_end")
+        for box in pages[0].textbox_boxes
+    )
+    rendered = RenderCanvas(config).render_pages(pages)[0]
+    assert sum(pixel != (255, 255, 255) for pixel in rendered.getdata()) > 100

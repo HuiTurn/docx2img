@@ -589,6 +589,18 @@ class DocumentParser:
             run.brk = BreakRun(break_type=br_type)
             return run
 
+        # Legacy VML drawings (w:pict/v:shape/v:line).  These are still common
+        # in WPS-authored documents and older Word flowcharts.
+        pict = elem.find(f"{{{NS.W}}}pict")
+        if pict is not None and self._drawing_parser is not None:
+            items = self._drawing_parser.parse_vml(pict)
+            if target_para is not None:
+                target_para.group_items.extend(items)
+            if items:
+                # VML text lives inside its own textbox paragraphs and must not
+                # be duplicated into the host paragraph's normal text flow.
+                return None
+
         # Drawing / image / textbox
         drawing = elem.find(f"{{{NS.W}}}drawing")
         if drawing is None:

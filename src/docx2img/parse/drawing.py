@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Dict, Optional
+import re
+from typing import Any, Callable, Dict, List, Optional
 
 from ..model.enums import Alignment
 from ..model.paragraph import (
@@ -16,7 +17,9 @@ from ..model.paragraph import (
     TextBoxRun,
     TextRun,
 )
-from .namespaces import NS, A, WP, PIC, R_DOC, W, WPG, WPS
+from .namespaces import (
+    NS, A, WP, PIC, R_DOC, W, WPG, WPS, VML, OFFICE, WORD_VML
+)
 from .units import Units
 
 logger = logging.getLogger(__name__)
@@ -101,6 +104,282 @@ class DrawingParser:
                         result["lines"].append(shape_info)
 
         return result
+
+    def parse_vml(self, pict_el) -> List[Dict[str, Any]]:
+        """Parse legacy ``w:pict`` VML shapes into paragraph group items.
+
+        WPS and older Word documents frequently store flowcharts, captions,
+        text-over-image frames and connector arrows as VML rather than
+        DrawingML.  Their positions are paragraph-relative point values in the
+        CSS-like ``style`` attribute.
+        """
+        result: List[Dict[str, Any]] = []
+        for child in list(pict_el):
+            tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+            if tag not in ("shape", "rect", "oval", "line"):
+                continue
+
+            style = self._parse_vml_style(child.get("style", ""))
+            x = self._vml_length(style.get("margin-left", style.get("left", "0")))
+            y = self._vml_length(style.get("margin-top", style.get("top", "0")))
+            width = self._vml_length(style.get("width", "0"))
+            height = self._vml_length(style.get("height", "0"))
+            z_index = self._vml_int(style.get("z-index"), 0)
+            flip = set((style.get("flip") or "").lower().split())
+            rotation = self._vml_rotation(style.get("rotation"))
+
+            if tag == "line":
+                line = self._vml_line_item(
+                    child, x, y, width, height, flip, rotation, z_index
+                )
+                result.append({"type": "line", "data": line})
+                continue
+
+            textbox = child.find(f".//{{{W}}}txbxContent")
+            spt = child.get(f"{{{OFFICE}}}spt", "")
+            if not spt:
+                type_ref = child.get("type", "")
+                match = re.search(r"_t(\d+)$", type_ref)
+                spt = match.group(1) if match else ""
+
+            if textbox is None:
+                # Built-in VML shape types 32–35 are connector variants.
+                if spt in {"32", "33", "34", "35"}:
+                    line = self._vml_line_item(
+                        child, x, y, width, height, flip, rotation, z_index,
+                        connector_type=spt,
+                    )
+                    result.append({"type": "line", "data": line})
+                continue
+
+            paragraphs = []
+            if self._parse_para:
+                for para_el in textbox:
+                    if para_el.tag.split("}")[-1] == "p":
+                        para = self._parse_para(para_el)
+                        if para:
+                            paragraphs.append(para)
+
+            if tag == "oval":
+                shape_type = "oval"
+            elif tag == "rect":
+                shape_type = "rect"
+            else:
+                shape_type = {
+                    "110": "diamond",
+                    "202": "none",
+                }.get(spt, "rect")
+            fill = self._vml_fill(child)
+            border = self._vml_border(child)
+            wrap = child.find(f"{{{WORD_VML}}}wrap")
+            wrap_type = (
+                wrap.get("type", "square")
+                if wrap is not None
+                else "inFrontOf"
+            )
+            inset_el = child.find(f"{{{VML}}}textbox")
+            insets = self._vml_insets(
+                inset_el.get("inset", "") if inset_el is not None else ""
+            )
+            tb = TextBoxRun(
+                paragraphs=paragraphs,
+                width_emu=int(round(width * Units.EMU_PER_PT)),
+                height_emu=int(round(height * Units.EMU_PER_PT)),
+                pos_x=x,
+                pos_y=y,
+                wrap_type=wrap_type,
+                fill=fill,
+                border_color=border,
+                shape_type=shape_type,
+                z_index=z_index,
+                affects_flow=False,
+                insets=insets,
+            )
+            result.append({"type": "textbox", "data": tb})
+        return result
+
+    @staticmethod
+    def _parse_vml_style(style: str) -> Dict[str, str]:
+        parsed: Dict[str, str] = {}
+        for declaration in (style or "").split(";"):
+            key, sep, value = declaration.partition(":")
+            if sep:
+                parsed[key.strip().lower()] = value.strip()
+        return parsed
+
+    @staticmethod
+    def _vml_length(value: Optional[str]) -> float:
+        """Return a VML CSS length in points."""
+        if value is None:
+            return 0.0
+        match = re.match(
+            r"^\s*(-?(?:\d+(?:\.\d*)?|\.\d+))\s*(pt|px|in|cm|mm)?\s*$",
+            str(value),
+            re.I,
+        )
+        if not match:
+            return 0.0
+        number = float(match.group(1))
+        unit = (match.group(2) or "pt").lower()
+        factors = {
+            "pt": 1.0,
+            "px": 72.0 / 96.0,
+            "in": 72.0,
+            "cm": 72.0 / 2.54,
+            "mm": 72.0 / 25.4,
+        }
+        return number * factors[unit]
+
+    @staticmethod
+    def _vml_int(value: Optional[str], default: int = 0) -> int:
+        try:
+            return int(float(value)) if value is not None else default
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _vml_rotation(value: Optional[str]) -> float:
+        if not value:
+            return 0.0
+        raw = str(value).strip().lower()
+        try:
+            if raw.endswith("f"):
+                return float(raw[:-1]) / 65536.0
+            return float(raw)
+        except ValueError:
+            return 0.0
+
+    @staticmethod
+    def _vml_bool(value: Optional[str], default: bool = True) -> bool:
+        if value is None:
+            return default
+        return str(value).strip().lower() not in {"f", "false", "0", "off", "no"}
+
+    @staticmethod
+    def _vml_color(value: Optional[str], default: Optional[tuple] = None):
+        if not value:
+            return default
+        raw = value.strip().lower()
+        named = {
+            "black": (0, 0, 0),
+            "white": (255, 255, 255),
+            "red": (255, 0, 0),
+            "green": (0, 128, 0),
+            "blue": (0, 0, 255),
+            "yellow": (255, 255, 0),
+        }
+        if raw in named:
+            return named[raw]
+        raw = raw.lstrip("#")
+        if len(raw) == 6:
+            try:
+                return tuple(int(raw[i:i + 2], 16) for i in (0, 2, 4))
+            except ValueError:
+                pass
+        return default
+
+    def _vml_fill(self, shape_el) -> Optional[tuple]:
+        if not self._vml_bool(shape_el.get("filled"), True):
+            return None
+        fill_el = shape_el.find(f"{{{VML}}}fill")
+        if fill_el is not None and not self._vml_bool(fill_el.get("on"), True):
+            return None
+        value = shape_el.get("fillcolor")
+        if not value and fill_el is not None:
+            value = fill_el.get("color") or fill_el.get("color2")
+        return self._vml_color(value, (255, 255, 255))
+
+    def _vml_border(self, shape_el) -> Optional[tuple]:
+        if not self._vml_bool(shape_el.get("stroked"), True):
+            return None
+        stroke = shape_el.find(f"{{{VML}}}stroke")
+        if stroke is not None and not self._vml_bool(stroke.get("on"), True):
+            return None
+        value = shape_el.get("strokecolor")
+        if not value and stroke is not None:
+            value = stroke.get("color")
+        return self._vml_color(value, (0, 0, 0))
+
+    def _vml_line_item(
+        self,
+        shape_el,
+        x: float,
+        y: float,
+        width: float,
+        height: float,
+        flip: set,
+        rotation: float,
+        z_index: int,
+        connector_type: str = "20",
+    ) -> Dict[str, Any]:
+        if width == 0.0 and height == 0.0:
+            start = self._vml_pair(shape_el.get("from"))
+            end = self._vml_pair(shape_el.get("to"))
+            if start is not None and end is not None:
+                x, y = start
+                width, height = end[0] - start[0], end[1] - start[1]
+
+        if connector_type == "34":
+            points = [
+                (0.0, 0.0),
+                (width * 0.5, 0.0),
+                (width * 0.5, height),
+                (width, height),
+            ]
+        elif connector_type in {"33", "35"} and abs(width) > 0.5 and abs(height) > 0.5:
+            points = [(0.0, 0.0), (width, 0.0), (width, height)]
+        else:
+            points = [(0.0, 0.0), (width, height)]
+
+        rotate_180 = abs((rotation % 360.0) - 180.0) < 0.01
+        transformed = []
+        for px, py in points:
+            if "x" in flip:
+                px = width - px
+            if "y" in flip:
+                py = height - py
+            if rotate_180:
+                px, py = width - px, height - py
+            transformed.append((px, py))
+
+        stroke = shape_el.find(f"{{{VML}}}stroke")
+        arrow_end = (
+            stroke is not None
+            and (stroke.get("endarrow") or "").lower() not in {"", "none"}
+        )
+        line_width = self._vml_length(
+            shape_el.get("strokeweight")
+            or (stroke.get("weight") if stroke is not None else None)
+            or "0.75pt"
+        )
+        return {
+            "type": "line",
+            "x": x,
+            "y": y,
+            "width": width,
+            "height": height,
+            "points": transformed,
+            "line_width_pt": line_width,
+            "color": self._vml_border(shape_el) or (0, 0, 0),
+            "arrow_end": arrow_end,
+            "z_index": z_index,
+            "affects_flow": False,
+        }
+
+    def _vml_pair(self, value: Optional[str]) -> Optional[tuple]:
+        if not value or "," not in value:
+            return None
+        first, second = value.split(",", 1)
+        return self._vml_length(first), self._vml_length(second)
+
+    def _vml_insets(self, value: str) -> tuple:
+        defaults = (3.6, 1.8, 3.6, 1.8)
+        if not value:
+            return defaults
+        parts = [self._vml_length(item) for item in value.split(",")]
+        if len(parts) == 4:
+            return tuple(parts)
+        return defaults
 
     @staticmethod
     def _group_transform(grp) -> tuple:

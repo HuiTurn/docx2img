@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import math
 from typing import List, Optional, Any, Callable, Dict
 
 from ..config import Config
@@ -65,6 +66,11 @@ class TableLayoutEngine:
         self.line_breaker = line_breaker
         self._layout_para = layout_paragraph_fn
         self._layout_table = layout_table_fn
+        # Set by LayoutEngine for the active section.  Table cells do not
+        # place every automatic line directly on the document baseline grid,
+        # but explicit minimum row heights are rounded to whole grid bands by
+        # Word/WPS when the cell paragraph participates in the grid.
+        self.grid_line_pitch_px: Optional[float] = None
 
     def layout(self, table: Table, available_width: float, px_per_pt: float) -> TableBox:
         n_cols = self._count_cols(table)
@@ -429,10 +435,37 @@ class TableLayoutEngine:
                     first_extra = -props.hanging_indent * px_per_pt
 
                 para_lines = self.line_breaker.break_paragraph(
-                    block, content_w, px_per_pt, first_line_extra=first_extra
+                    block,
+                    content_w,
+                    px_per_pt,
+                    first_line_extra=first_extra,
+                    # WPS permits a few percent of East-Asian character
+                    # compression in centered table cells.  This keeps short
+                    # headers such as “合价（元）” on one line.
+                    fit_tolerance=1.05
+                    if props.alignment == Alignment.CENTER
+                    else 1.0,
                 )
 
                 for i, line in enumerate(para_lines):
+                    if (
+                        props.line_spacing_rule == "auto"
+                        and props.line_spacing
+                        and props.line_spacing > 1.0
+                        and getattr(props, "snap_to_grid", True)
+                    ):
+                        # Inside an automatic-height table row WPS derives
+                        # 1.5-line spacing from the CJK font's full cell line
+                        # box, rather than the nominal em.  The 1.52 factor
+                        # matches FangSong/SimSun metrics used by Word/WPS.
+                        ref_size = props.mark_font_size or 12.0
+                        cell_line_h = (
+                            ref_size
+                            * 1.52
+                            * props.line_spacing
+                            * px_per_pt
+                        )
+                        line.height = max(line.height, cell_line_h)
                     indent = first_extra if i == 0 else 0.0
                     line.x = indent
                     line_avail = max(1.0, content_w - indent)
@@ -497,7 +530,32 @@ class TableLayoutEngine:
             if row.height_rule == "exact" and row.height > 0:
                 heights[r] = row.height * px_per_pt
             elif row.height_rule == "atLeast" and row.height > 0:
-                heights[r] = max(min_h, row.height * px_per_pt)
+                target_h = max(min_h, row.height * px_per_pt)
+                snaps_to_grid = any(
+                    box
+                    and box.is_origin
+                    and not box.v_merged
+                    and box.cell
+                    and any(
+                        isinstance(block, Paragraph)
+                        and getattr(block.props, "snap_to_grid", True)
+                        for block in box.cell.blocks
+                    )
+                    for box in grid[r]
+                )
+                if (
+                    snaps_to_grid
+                    and self.grid_line_pitch_px
+                    and self.grid_line_pitch_px > 0
+                ):
+                    target_h = (
+                        math.ceil(
+                            (target_h - self.grid_line_pitch_px * 0.05)
+                            / self.grid_line_pitch_px
+                        )
+                        * self.grid_line_pitch_px
+                    )
+                heights[r] = target_h
             else:
                 heights[r] = max(min_h, 12.0 * px_per_pt)  # min line
 

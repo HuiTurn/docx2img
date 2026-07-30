@@ -10,7 +10,7 @@ from ..font.manager import FontManager
 from .tab_stop import TabStopResolver
 from .math_layout import MathLayoutEngine
 from .float_layout import FloatLayoutEngine, ExclusionZone
-from ..model.enums import TabStopType
+from ..model.enums import Alignment, TabStopType
 
 
 def _get_line_box_classes():
@@ -97,6 +97,7 @@ class LineBreaker:
         first_line_extra: float = 0.0,
         wrap_zones: Optional[List[ExclusionZone]] = None,
         grid_line_pitch_px: Optional[float] = None,
+        fit_tolerance: float = 1.0,
     ) -> List[Any]:
         """Break paragraph into LineBox objects.
 
@@ -108,6 +109,8 @@ class LineBreaker:
                 (positive = first-line indent, negative = hanging)
             wrap_zones: Optional float exclusion zones in paragraph-local coords
             grid_line_pitch_px: Optional section baseline-grid pitch in pixels
+            fit_tolerance: Small width tolerance for constrained containers
+                such as centered table cells
         """
         LineBox, GlyphBox = _get_line_box_classes()
         lines: List[Any] = []
@@ -146,6 +149,32 @@ class LineBreaker:
         est_y = 0.0
         wrap_x = 0.0
         max_width = available_width - first_line_extra
+        cjk_compressible = para.props.alignment in (
+            Alignment.JUSTIFY,
+            Alignment.DISTRIBUTE,
+        )
+
+        def _fit_limit() -> float:
+            # Word/WPS may compress East-Asian inter-character spacing by a
+            # small amount on justified lines.  Account for that while choosing
+            # break positions; rendering later distributes the negative gap.
+            return max_width * (
+                max(1.016, fit_tolerance)
+                if cjk_compressible
+                else max(1.0, fit_tolerance)
+            )
+
+        def _can_hang_end_punctuation(unit: dict, total_width: float) -> bool:
+            """Allow one East-Asian closing mark to hang outside the text edge."""
+            text = unit.get("text", "")
+            first_ch = text[:1] if text else ""
+            return (
+                cjk_compressible
+                and bool(current_units)
+                and first_ch in self.NO_START_CHARS
+                and current_width <= _fit_limit()
+                and total_width <= _fit_limit() + unit["width"] + 0.5
+            )
 
         def _resolve_band(y: float, line_h: float, indent_extra: float) -> Tuple[float, float]:
             """Return (wrap_x_offset, max_width) for a horizontal band."""
@@ -189,6 +218,15 @@ class LineBreaker:
             if pending_compress > 0.0:
                 self._compress_line(line, pending_compress)
                 pending_compress = 0.0
+            if current_units:
+                last_text = current_units[-1].get("text", "")
+                if (
+                    last_text[-1:] in self.NO_START_CHARS
+                    and current_width > max_width + 0.5
+                ):
+                    # Word/WPS place roughly half of an East-Asian closing
+                    # punctuation glyph outside the right text edge.
+                    line._hanging_end_width = current_units[-1]["width"] / 2.0  # type: ignore[attr-defined]
             line._wrap_x = wrap_x  # type: ignore[attr-defined]
             line._wrap_width = max_width  # type: ignore[attr-defined]
             lines.append(line)
@@ -269,7 +307,12 @@ class LineBreaker:
 
 
             # Soft wrap when exceeding
-            if current_units and current_width + unit_w > max_width:
+            candidate_width = current_width + unit_w
+            if (
+                current_units
+                and candidate_width > _fit_limit()
+                and not _can_hang_end_punctuation(unit, candidate_width)
+            ):
                 prev = current_units[-1]
                 # Keep right-tab follower (page number) glued to the tab
                 if prev.get("is_tab") and unit_w <= float(prev.get("tab_follow_w") or unit_w) + 1.0:
@@ -352,7 +395,7 @@ class LineBreaker:
                 nxt = units[i]
                 if (
                     not nxt.get("force_break")
-                    and current_width + nxt["width"] > max_width
+                    and current_width + nxt["width"] > _fit_limit()
                     and current_units
                     and not self.can_break_after(current_units[-1]["text"][-1:])
                 ):
@@ -744,6 +787,7 @@ class LineBreaker:
         max_ascent = 0.0
         max_descent = 0.0
         max_height = 0.0
+        max_font_size_pt = 0.0
         has_text = False
 
         for unit in units:
@@ -808,7 +852,20 @@ class LineBreaker:
             props = unit["props"]
             w = unit["width"]
             h = unit["height"]
-            has_text = True
+            # Surrounding spaces are common in paragraphs that contain only
+            # inline pictures.  They must not make the line behave like a text
+            # line and snap the picture height up to another grid interval.
+            if text.strip() or (
+                text
+                and (getattr(para_props, "line_spacing", 1.0) or 1.0)
+                <= 1.0 + 1e-6
+            ):
+                has_text = True
+            if props is not None:
+                size_pt = props.font_size or 12.0
+                if props.vertical_align in ("superscript", "subscript"):
+                    size_pt *= 0.65
+                max_font_size_pt = max(max_font_size_pt, size_pt)
 
             # Tab leaders: plain black dots — no hyperlink underline/color
             if unit.get("is_tab") and props is not None:
@@ -872,6 +929,7 @@ class LineBreaker:
             px_per_pt,
             image_only=image_only,
             grid_line_pitch_px=grid_line_pitch_px,
+            reference_font_size_pt=max_font_size_pt or None,
         )
         return line
 
@@ -882,6 +940,7 @@ class LineBreaker:
         px_per_pt: float,
         image_only: bool = False,
         grid_line_pitch_px: Optional[float] = None,
+        reference_font_size_pt: Optional[float] = None,
     ) -> float:
         """Compute line box height from paragraph spacing.
 
@@ -899,6 +958,11 @@ class LineBreaker:
         paragraph multiplier to an image-only line box).
         """
         rule = getattr(para_props, "line_spacing_rule", "auto") or "auto"
+        mark_font_size = getattr(para_props, "mark_font_size", None) or 12.0
+        ref_font_size = (
+            reference_font_size_pt
+            or mark_font_size
+        )
         if image_only and rule == "auto":
             resolved = natural_height
         elif rule == "exact" and para_props.line_spacing_exact is not None:
@@ -908,25 +972,46 @@ class LineBreaker:
         else:
             # auto: multiplier (default 1.0 → single spacing)
             mult = para_props.line_spacing if para_props.line_spacing else 1.0
-            ref_font_size = getattr(para_props, "mark_font_size", None) or 12.0
-            mark_floor = ref_font_size * px_per_pt * mult
-            resolved = max(natural_height * mult, mark_floor)
+            if (
+                mult > 1.0 + 1e-6
+                and getattr(para_props, "snap_to_grid", True) is False
+            ):
+                # WPS/Word automatic 1.5-line spacing is based on the CJK
+                # font's full single-line box (about 1.45em for FangSong),
+                # even when w:snapToGrid disables baseline snapping. Using
+                # only nominal font size compresses these lines to 21pt
+                # instead of the authored ~30.4pt at 14pt.
+                cjk_single = ref_font_size * 1.447 * px_per_pt
+                resolved = max(natural_height * mult, cjk_single * mult)
+            else:
+                mark_floor = mark_font_size * px_per_pt * mult
+                resolved = max(natural_height * mult, mark_floor)
 
         # A section document grid fixes baselines at linePitch intervals.
-        # Snap the resolved line box upward to a whole grid interval; a
-        # larger line therefore occupies two (or more) intervals instead of
-        # drifting subsequent baselines off-grid.  Image-only lines snap too:
-        # Word grows an inline picture's line to whole grid intervals (the
-        # picture is then centred vertically in the enlarged box).
+        # Word/WPS decide how many intervals a text line occupies from the
+        # typographic line box, not merely from the nominal font size.  Their
+        # normal CJK line box is approximately 1.2em plus a small leading
+        # allowance.  This distinction matters when a 14pt FangSong line is
+        # placed on a 15.6pt grid: it occupies two intervals (31.2pt), whereas
+        # using only the 14pt nominal size incorrectly squeezes it into one.
         if (
             grid_line_pitch_px
             and grid_line_pitch_px > 0
             and rule != "exact"
         ):
-            intervals = max(
-                1,
-                int(math.ceil((resolved - 1e-6) / grid_line_pitch_px)),
-            )
+            grid_required = resolved
+            if rule == "auto" and not image_only:
+                grid_typographic = (
+                    ref_font_size * 1.2 + 0.5
+                ) * px_per_pt
+                grid_required = max(grid_required, grid_typographic)
+            if grid_required <= grid_line_pitch_px * 1.05:
+                intervals = 1
+            else:
+                intervals = max(
+                    1,
+                    int(math.ceil((grid_required - 1e-6) / grid_line_pitch_px)),
+                )
             return intervals * grid_line_pitch_px
         return resolved
 

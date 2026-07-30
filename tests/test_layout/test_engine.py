@@ -272,7 +272,128 @@ class TestLayoutEngine:
 
         assert len(blocks) == 1
         assert len(blocks[0].float_boxes) == 1
-        assert blocks[0].height >= blocks[0].float_boxes[0].height
+        assert 0 < blocks[0].height < blocks[0].float_boxes[0].height
+
+    def test_long_paragraph_splits_across_pages_with_widow_control(self):
+        """Ordinary text paragraphs flow by line instead of moving atomically."""
+        config = Config(dpi=96)
+        section = Section(
+            page_w=220.0,
+            page_h=180.0,
+            margin_top=20.0,
+            margin_bottom=20.0,
+            margin_left=20.0,
+            margin_right=20.0,
+        )
+        para = Paragraph(
+            runs=[
+                Run(
+                    text=TextRun(
+                        text=("This is a long flowing paragraph. " * 30),
+                        props=RunProps(font_size=12.0),
+                    )
+                )
+            ]
+        )
+        document = DocumentModel(body=[para], sections=[section])
+
+        pages = LayoutEngine(document, config).layout()
+
+        assert len(pages) >= 2
+        assert all(len(page.blocks[0].lines) >= 2 for page in pages)
+        assert sum(len(page.blocks[0].lines) for page in pages) > 4
+
+    def test_tight_float_wraps_following_paragraphs(self):
+        """A paragraph-relative float excludes text in later overlapping blocks."""
+        from src.docx2img.model.paragraph import ImageRun
+
+        config = Config(dpi=96)
+        anchor = Paragraph(
+            runs=[
+                Run(text=TextRun(text="anchor", props=RunProps(font_size=12.0))),
+                Run(
+                    image=ImageRun(
+                        media_ref="rId1",
+                        width_emu=1828800,
+                        height_emu=1371600,
+                        wrap_type="tight",
+                        pos_x=180.0,
+                        pos_y=0.0,
+                    )
+                ),
+            ]
+        )
+        following = Paragraph(
+            runs=[
+                Run(
+                    text=TextRun(
+                        text=("following paragraph text " * 20),
+                        props=RunProps(font_size=12.0),
+                    )
+                )
+            ]
+        )
+        document = DocumentModel(
+            body=[anchor, following],
+            sections=[Section(margin_left=40.0, margin_right=40.0)],
+        )
+
+        page = LayoutEngine(document, config).layout()[0]
+        following_block = next(b for b in page.blocks if b.element is following)
+
+        assert len(following_block.lines) > 1
+        assert any(
+            getattr(line, "_wrap_width", following_block.width)
+            < following_block.width * 0.75
+            for line in following_block.lines
+        )
+
+    def test_table_splits_between_rows_across_pages(self):
+        """A multi-row table uses the remaining page instead of moving whole."""
+        from src.docx2img.model.table import Cell, Row, Table
+
+        config = Config(dpi=96)
+        rows = []
+        for i in range(6):
+            cell_para = Paragraph(
+                runs=[
+                    Run(
+                        text=TextRun(
+                            text=f"row {i}",
+                            props=RunProps(font_size=10.0),
+                        )
+                    )
+                ]
+            )
+            rows.append(
+                Row(
+                    cells=[Cell(blocks=[cell_para])],
+                    height=30.0,
+                    height_rule="exact",
+                )
+            )
+        table = Table(rows=rows, col_widths=[140.0])
+        section = Section(
+            page_w=220.0,
+            page_h=160.0,
+            margin_top=20.0,
+            margin_bottom=20.0,
+            margin_left=20.0,
+            margin_right=20.0,
+        )
+        pages = LayoutEngine(
+            DocumentModel(body=[table], sections=[section]),
+            config,
+        ).layout()
+
+        table_blocks = [
+            block
+            for page in pages
+            for block in page.blocks
+            if block.table_box is not None
+        ]
+        assert len(pages) >= 2
+        assert sum(len(block.table_box.row_heights) for block in table_blocks) == 6
 
     def test_anchored_objects_are_not_duplicated_across_page_segments(self):
         """A manual break splits text blocks but not paragraph-level anchors."""
@@ -705,6 +826,23 @@ class TestLineHeightFormula:
         result15 = self.lb._line_height(props15, natural_height=25.0, px_per_pt=px)
         assert abs(result15 - 25.0 * 1.5) < 0.5
 
+    def test_wps_unsnapped_cjk_uses_full_auto_line_box(self):
+        """WPS 14pt FangSong at 1.5 lines is approximately 30.4pt."""
+        px = 150 / 72
+        props = self._props(
+            line_spacing=1.5,
+            line_spacing_rule="auto",
+            mark_font_size=12,
+            snap_to_grid=False,
+        )
+        result = self.lb._line_height(
+            props,
+            natural_height=14.4 * px,
+            px_per_pt=px,
+            reference_font_size_pt=14.0,
+        )
+        assert result / px == pytest.approx(30.4, abs=0.1)
+
     def test_exact_spacing_unchanged(self):
         """exact rule uses absolute value, unaffected by formula change."""
         px = 150 / 72
@@ -727,20 +865,35 @@ class TestLineHeightFormula:
                                        px_per_pt=2, image_only=True)
         assert result == 100.0
 
-    def test_document_grid_snaps_text_to_whole_pitch(self):
-        """A resolved 12pt line occupies one 18pt document-grid interval."""
+    def test_document_grid_uses_typographic_cjk_line_box(self):
+        """A 14pt CJK line occupies two intervals on a 15.6pt grid."""
         props = self._props(
             line_spacing=1.0,
             line_spacing_rule="auto",
-            mark_font_size=12,
+            mark_font_size=14,
         )
         result = self.lb._line_height(
             props,
-            natural_height=12.0,
+            natural_height=28.0,
             px_per_pt=2.0,
-            grid_line_pitch_px=36.0,
+            grid_line_pitch_px=31.2,
         )
-        assert result == 36.0
+        assert result == 62.4
+
+    def test_document_grid_large_mark_uses_three_intervals(self):
+        """A 26pt title/empty mark needs three intervals on a 15.6pt grid."""
+        props = self._props(
+            line_spacing=1.0,
+            line_spacing_rule="auto",
+            mark_font_size=26,
+        )
+        result = self.lb._line_height(
+            props,
+            natural_height=52.0,
+            px_per_pt=2.0,
+            grid_line_pitch_px=31.2,
+        )
+        assert result == 93.6
 
     def test_exact_spacing_overrides_document_grid(self):
         """OOXML exact line spacing opts the paragraph out of the line grid."""

@@ -228,6 +228,11 @@ class StylesParser:
                 props.borders = borders
                 fields.add("borders")
 
+        snap_to_grid = elem.find(f"{{{NS.W}}}snapToGrid")
+        if snap_to_grid is not None:
+            props.snap_to_grid = ooxml_on_off(snap_to_grid)
+            fields.add("snap_to_grid")
+
         outline = elem.find(f"{{{NS.W}}}outlineLvl")
         if outline is not None:
             val = outline.get(f"{{{NS.W}}}val")

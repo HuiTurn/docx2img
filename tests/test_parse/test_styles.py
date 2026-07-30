@@ -21,6 +21,7 @@ STYLES_XML = b"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
     <w:pPrDefault>
       <w:pPr>
         <w:spacing w:after="160" w:line="276" w:lineRule="auto"/>
+        <w:snapToGrid w:val="0"/>
       </w:pPr>
     </w:pPrDefault>
   </w:docDefaults>
@@ -141,6 +142,7 @@ class TestStylesParser:
         assert rpr.font_size == 11.0
         assert rpr.font_ascii == "Calibri"
         assert abs(ppr.space_after - 8.0) < 0.1  # 160 twips
+        assert ppr.snap_to_grid is False
         assert "Heading1" in table.styles
         h1 = table.get("Heading1")
         assert h1 is not None
