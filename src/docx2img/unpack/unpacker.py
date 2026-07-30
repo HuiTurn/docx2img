@@ -20,6 +20,9 @@ class DocxPackage:
     endnotes_xml: Optional[bytes] = None
     rels: Dict[str, str] = field(default_factory=dict)
     document_rels: Dict[str, str] = field(default_factory=dict)
+    # Header/footer part relationships (filename → {rId → target})
+    header_rels: Dict[str, Dict[str, str]] = field(default_factory=dict)
+    footer_rels: Dict[str, Dict[str, str]] = field(default_factory=dict)
 
 
 class Unpacker:
@@ -75,12 +78,29 @@ class Unpacker:
                 except KeyError:
                     continue
                 lower = t.lower()
+                filename = t.split('/')[-1]
                 if 'header' in lower:
                     package.headers[rid] = data
-                    package.headers[t.split('/')[-1]] = data
+                    package.headers[filename] = data
+                    # Parse header part relationships
+                    rels_path = 'word/_rels/' + filename + '.rels'
+                    try:
+                        package.header_rels[filename] = self._parse_rels(
+                            zf.read(rels_path)
+                        )
+                    except KeyError:
+                        pass
                 elif 'footer' in lower:
                     package.footers[rid] = data
-                    package.footers[t.split('/')[-1]] = data
+                    package.footers[filename] = data
+                    # Parse footer part relationships
+                    rels_path = 'word/_rels/' + filename + '.rels'
+                    try:
+                        package.footer_rels[filename] = self._parse_rels(
+                            zf.read(rels_path)
+                        )
+                    except KeyError:
+                        pass
 
         return package
 

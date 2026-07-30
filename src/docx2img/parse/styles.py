@@ -10,6 +10,7 @@ from ..model.paragraph import RunProps, ParaProps
 from ..model.enums import Alignment, TabStopType
 from .namespaces import NS
 from .units import Units
+from .table import parse_border_elem
 
 
 def ooxml_on_off(node, default: bool = True) -> bool:
@@ -109,6 +110,8 @@ class StylesParser:
         if spacing is not None:
             before = spacing.get(f"{{{NS.W}}}before")
             after = spacing.get(f"{{{NS.W}}}after")
+            before_lines = spacing.get(f"{{{NS.W}}}beforeLines")
+            after_lines = spacing.get(f"{{{NS.W}}}afterLines")
             line = spacing.get(f"{{{NS.W}}}line")
             line_rule = spacing.get(f"{{{NS.W}}}lineRule", "auto")
             if before is not None:
@@ -117,6 +120,20 @@ class StylesParser:
             if after is not None:
                 props.space_after = Units.parse_twips(after)
                 fields.add("space_after")
+            # beforeLines/afterLines override the twip values (hundredths of
+            # a line); resolved against grid pitch at layout time.
+            if before_lines is not None:
+                try:
+                    props.space_before_lines = int(before_lines)
+                    fields.add("space_before_lines")
+                except ValueError:
+                    pass
+            if after_lines is not None:
+                try:
+                    props.space_after_lines = int(after_lines)
+                    fields.add("space_after_lines")
+                except ValueError:
+                    pass
             if line is not None:
                 line_val = int(line)
                 fields.add("line_spacing_rule")
@@ -174,6 +191,42 @@ class StylesParser:
         if page_break is not None:
             props.page_break_before = ooxml_on_off(page_break)
             fields.add("page_break_before")
+        widow = elem.find(f"{{{NS.W}}}widowControl")
+        if widow is not None:
+            props.widow_control = ooxml_on_off(widow)
+            fields.add("widow_control")
+
+        # CJK auto-spacing at script boundaries.  Word enables both by default;
+        # an explicit val="0"/"false" disables the gap insertion.
+        auto_de = elem.find(f"{{{NS.W}}}autoSpaceDE")
+        if auto_de is not None:
+            props.auto_space_de = ooxml_on_off(auto_de)
+            fields.add("auto_space_de")
+        auto_dn = elem.find(f"{{{NS.W}}}autoSpaceDN")
+        if auto_dn is not None:
+            props.auto_space_dn = ooxml_on_off(auto_dn)
+            fields.add("auto_space_dn")
+
+        # Paragraph borders (w:pBdr) — top/left/bottom/right/between.
+        pbdr = elem.find(f"{{{NS.W}}}pBdr")
+        if pbdr is not None:
+            borders = {}
+            for side in ("top", "left", "bottom", "right", "between"):
+                node = pbdr.find(f"{{{NS.W}}}{side}")
+                if node is not None:
+                    spec = parse_border_elem(node)
+                    # For paragraph borders w:space is in points (CT_Border),
+                    # not twips — re-parse it directly.
+                    space_raw = node.get(f"{{{NS.W}}}space")
+                    if space_raw is not None:
+                        try:
+                            spec.space = float(space_raw)
+                        except ValueError:
+                            pass
+                    borders[side] = spec
+            if borders:
+                props.borders = borders
+                fields.add("borders")
 
         outline = elem.find(f"{{{NS.W}}}outlineLvl")
         if outline is not None:

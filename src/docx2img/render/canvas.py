@@ -157,6 +157,51 @@ class RenderCanvas:
         for line in block.lines:
             self._render_line(line)
 
+        self._draw_paragraph_borders(block)
+
+    def _draw_paragraph_borders(self, block) -> None:
+        """Draw w:pBdr paragraph borders around a laid-out block."""
+        borders = getattr(block, "para_borders", None)
+        if not borders:
+            return
+        px_per_pt = self.config.px_per_pt
+        x1 = block.x
+        x2 = block.x + block.width
+
+        top = borders.get("top")
+        if top is not None and top.style != BorderStyle.NONE:
+            w = max(top.width * px_per_pt, 1.0)
+            y = block.y + block.space_before + w / 2.0
+            self.border_renderer.draw_border(
+                self._draw, x1, y, x2, y, top, px_per_pt
+            )
+
+        bottom = borders.get("bottom")
+        if bottom is not None and bottom.style != BorderStyle.NONE:
+            w = max(bottom.width * px_per_pt, 1.0)
+            y = block.y + block.height - block.space_after - w / 2.0
+            self.border_renderer.draw_border(
+                self._draw, x1, y, x2, y, bottom, px_per_pt
+            )
+
+        # Side borders span the full block height (text area).
+        y_top = block.y + block.space_before
+        y_bot = block.y + block.height - block.space_after
+        left = borders.get("left")
+        if left is not None and left.style != BorderStyle.NONE:
+            w = max(left.width * px_per_pt, 1.0)
+            x = x1 - left.space * px_per_pt - w / 2.0
+            self.border_renderer.draw_border(
+                self._draw, x, y_top, x, y_bot, left, px_per_pt
+            )
+        right = borders.get("right")
+        if right is not None and right.style != BorderStyle.NONE:
+            w = max(right.width * px_per_pt, 1.0)
+            x = x2 + right.space * px_per_pt + w / 2.0
+            self.border_renderer.draw_border(
+                self._draw, x, y_top, x, y_bot, right, px_per_pt
+            )
+
     def _render_line(self, line) -> None:
         for glyph in line.glyphs:
             if glyph.image is not None:

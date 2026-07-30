@@ -1,6 +1,7 @@
 """Layout engine - Converts IR to layout tree with pages"""
 
 import logging
+import math
 from copy import copy
 from dataclasses import dataclass, field
 from typing import List, Any, Optional, Tuple, Dict
@@ -10,7 +11,7 @@ from ..model.document import DocumentModel
 from ..model.paragraph import Paragraph
 from ..model.table import Table
 from ..model.section import Section
-from ..model.enums import Alignment, SectionType
+from ..model.enums import Alignment, SectionType, BorderStyle
 from ..font.manager import FontManager
 from .line_breaker import LineBreaker
 from .page_breaker import PageBreaker
@@ -70,6 +71,11 @@ class BlockBox:
     space_after: float = 0.0
     page_break_before: bool = False
     page_break_after: bool = False
+    # Paragraph borders (w:pBdr).  border_pad_* is the extra vertical space
+    # (border width + its w:space gap) added above/below the text content.
+    para_borders: Dict[str, Any] = field(default_factory=dict)
+    border_pad_top: float = 0.0
+    border_pad_bottom: float = 0.0
 
 
 @dataclass
@@ -159,6 +165,7 @@ class LayoutEngine:
                 start_page=cont_page,
                 start_y=cont_y,
                 balance=next_is_continuous,
+                is_last_section=(idx == len(parts) - 1),
             )
             if cont_page is not None:
                 # First returned page is the page we continued on; it is
@@ -1233,6 +1240,23 @@ class LayoutEngine:
             block.y = y
             self._finalize_block_coords(block)
             page.header_blocks.append(block)
+            # Promote floats/textboxes to page coordinates so they render
+            for fb in block.float_boxes:
+                self._resolve_float_page_pos(
+                    fb, block, page.width, page.height,
+                    page.margin_left, page.margin_top
+                )
+                page.float_boxes.append(fb)
+            for tb in block.textbox_boxes:
+                tb["x"] = block.x + tb["x"]
+                tb["y"] = block.y + tb["y"]
+                for ib in tb.get("blocks", []):
+                    ib.y += tb["y"]
+                    self._finalize_block_coords(ib)
+                    for line in ib.lines:
+                        for g in line.glyphs:
+                            g.x += tb["x"]
+                page.textbox_boxes.append(tb)
             y += block.height
 
         footer_top = page.height - section.footer_distance * px_per_pt
@@ -1262,6 +1286,23 @@ class LayoutEngine:
             b.y = y
             self._finalize_block_coords(b)
             page.footer_blocks.append(b)
+            # Promote floats/textboxes to page coordinates so they render
+            for fb in b.float_boxes:
+                self._resolve_float_page_pos(
+                    fb, b, page.width, page.height,
+                    page.margin_left, page.margin_top
+                )
+                page.float_boxes.append(fb)
+            for tb in b.textbox_boxes:
+                tb["x"] = b.x + tb["x"]
+                tb["y"] = b.y + tb["y"]
+                for ib in tb.get("blocks", []):
+                    ib.y += tb["y"]
+                    self._finalize_block_coords(ib)
+                    for line in ib.lines:
+                        for g in line.glyphs:
+                            g.x += tb["x"]
+                page.textbox_boxes.append(tb)
             y += b.height
 
     def _expand_para_fields(self, para: Paragraph, page_num: int, total: int) -> None:
@@ -1274,6 +1315,16 @@ class LayoutEngine:
                     total,
                     reference_datetime=self.config.reference_datetime,
                 )
+            # Fields may also live inside a text box anchored to this
+            # paragraph (e.g. a centred PAGE number in a footer shape).
+            tb = getattr(run, "textbox", None)
+            if tb is not None:
+                for sub in getattr(tb, "paragraphs", None) or []:
+                    self._expand_para_fields(sub, page_num, total)
+        for gi in getattr(para, "group_items", None) or []:
+            if gi.get("type") == "textbox" and gi.get("data") is not None:
+                for sub in getattr(gi["data"], "paragraphs", None) or []:
+                    self._expand_para_fields(sub, page_num, total)
 
     def _expand_table_fields(
         self,
@@ -1318,6 +1369,7 @@ class LayoutEngine:
         start_page: Optional[PageBox] = None,
         start_y: Optional[float] = None,
         balance: bool = False,
+        is_last_section: bool = False,
     ) -> List[PageBox]:
         px_per_pt = self.config.px_per_pt
         self._grid_line_pitch_px = (
@@ -1351,6 +1403,15 @@ class LayoutEngine:
                     all_blocks.append(
                         self._layout_table(element, margin_left, content_width, px_per_pt)
                     )
+            # A section whose blocks are all inkless (empty paragraphs only)
+            # should not produce visible pages when followed by a NEXT_PAGE
+            # section — Word skips such bookkeeping-only sections entirely.
+            # The last section is never suppressed (its empty paragraphs are
+            # visible trailing content).
+            if all_blocks and not any(
+                self._block_has_ink(b) for b in all_blocks
+            ) and start_page is None and not is_last_section:
+                return []
             return self._paginate(
                 all_blocks,
                 page_width,
@@ -1703,8 +1764,46 @@ class LayoutEngine:
             block = BlockBox(element=para)
             block.x = x_offset + indent_left
             block.width = available_width
-            block.space_before = props.space_before * px_per_pt if is_first_displayed else 0.0
-            block.space_after = props.space_after * px_per_pt if is_last_segment else 0.0
+            # Resolve line-unit spacing (beforeLines/afterLines override twips).
+            # One "line" = grid pitch when docGrid is active, else mark_size.
+            space_before_pt = props.space_before
+            space_after_pt = props.space_after
+            if props.space_before_lines is not None:
+                line_unit = (
+                    self._grid_line_pitch_px / px_per_pt
+                    if self._grid_line_pitch_px
+                    else mark_size
+                )
+                space_before_pt = props.space_before_lines / 100.0 * line_unit
+            if props.space_after_lines is not None:
+                line_unit = (
+                    self._grid_line_pitch_px / px_per_pt
+                    if self._grid_line_pitch_px
+                    else mark_size
+                )
+                space_after_pt = props.space_after_lines / 100.0 * line_unit
+            block.space_before = space_before_pt * px_per_pt if is_first_displayed else 0.0
+            block.space_after = space_after_pt * px_per_pt if is_last_segment else 0.0
+            # Paragraph borders (w:pBdr) add vertical space: the border stroke
+            # plus its w:space gap sits outside the text content.  The top
+            # border belongs to the first displayed segment, the bottom border
+            # to the last segment (mirrors space_before/space_after handling).
+            if props.borders:
+                top_b = props.borders.get("top")
+                if (
+                    is_first_displayed
+                    and top_b is not None
+                    and top_b.style != BorderStyle.NONE
+                ):
+                    block.border_pad_top = (top_b.space + top_b.width) * px_per_pt
+                bot_b = props.borders.get("bottom")
+                if (
+                    is_last_segment
+                    and bot_b is not None
+                    and bot_b.style != BorderStyle.NONE
+                ):
+                    block.border_pad_bottom = (bot_b.space + bot_b.width) * px_per_pt
+                block.para_borders = props.borders
             if is_first_displayed:
                 block.page_break_before = bool(props.page_break_before) or has_leading_break
             else:
@@ -1769,7 +1868,7 @@ class LayoutEngine:
                                 )
                             )
                         block.textbox_boxes.append({
-                            "x": tb.pos_x * px_per_pt,
+                            "x": self._textbox_anchor_x(tb, w, available_width, px_per_pt),
                             "y": tb.pos_y * px_per_pt,
                             "width": w,
                             "height": h,
@@ -1815,7 +1914,13 @@ class LayoutEngine:
                         self._grid_line_pitch_px if apply_doc_grid else None
                     ),
                 )
-            block.height = content_h + block.space_before + block.space_after
+            block.height = (
+                content_h
+                + block.space_before
+                + block.space_after
+                + block.border_pad_top
+                + block.border_pad_bottom
+            )
             # Paragraph-relative floats that stick into/below this block reserve space
             for fb in block.float_boxes:
                 if fb.relative_y in ("page", "margin", "topMargin", "bottomMargin"):
@@ -1929,9 +2034,18 @@ class LayoutEngine:
 
         zones = []
         for run in para.runs:
-            if not run.image or run.image.wrap_type in ("inline", "behind", "inFrontOf"):
+            if not run.image or run.image.wrap_type in ("inline", "behind"):
                 continue
             img = run.image
+            # wrapNone/inFrontOf objects are normally drawn over the text, but
+            # Word still keeps the anchor paragraph's text clear of them when
+            # explicit horizontal distances (distL/distR) are present.  Skip
+            # them when no such distance is set (e.g. watermarks) so they keep
+            # overlapping the text as before.
+            if img.wrap_type == "inFrontOf" and not (
+                img.dist_l > 0 or img.dist_r > 0
+            ):
+                continue
             w = Units.emu_to_px(img.width_emu, self.config.dpi) if img.width_emu else 50
             h = Units.emu_to_px(img.height_emu, self.config.dpi) if img.height_emu else 50
             fx = (img.pos_x or 0.0) * px_per_pt
@@ -1943,9 +2057,15 @@ class LayoutEngine:
                     wrap_type="topAndBottom",
                 ))
             else:
+                if img.wrap_type == "inFrontOf":
+                    x_start = fx - img.dist_l * px_per_pt
+                    x_end = fx + w + img.dist_r * px_per_pt
+                else:
+                    x_start = fx
+                    x_end = fx + w
                 zones.append(ExclusionZone(
                     y_start=fy, y_end=fy + h,
-                    x_start=fx, x_end=fx + w,
+                    x_start=x_start, x_end=x_end,
                     wrap_type=img.wrap_type or "square",
                 ))
         return zones
@@ -1999,6 +2119,23 @@ class LayoutEngine:
                         inner_y += inner_block.height
                     inner_blocks.extend(paragraph_blocks)
 
+                # spAutoFit + alignment-positioned: Word shrinks the shape to
+                # the text width and then aligns that narrow box, which places
+                # the text at the alignment point.  Mirror this by shrinking the
+                # box width to the laid-out content extent so the anchor's
+                # align_x computation positions the content correctly (e.g. a
+                # centred footer page number lands at true page centre).
+                if tb.auto_fit and tb.align_x and inner_blocks:
+                    content_right = max(
+                        (
+                            line.x + line.width
+                            for ib in inner_blocks
+                            for line in ib.lines
+                        ),
+                        default=0.0,
+                    )
+                    w = max(inset_left + inset_right, content_right + inset_right)
+
                 usable_height = max(0.0, h - inset_top - inset_bottom)
                 ink_height = 0.0
                 for inner_block in inner_blocks:
@@ -2027,7 +2164,7 @@ class LayoutEngine:
                     inner_block.y += inset_top + vertical_offset
 
                 block.textbox_boxes.append({
-                    "x": tb.pos_x * px_per_pt,
+                    "x": self._textbox_anchor_x(tb, w, block.width, px_per_pt),
                     "y": tb.pos_y * px_per_pt,
                     "width": w,
                     "height": h,
@@ -2036,6 +2173,21 @@ class LayoutEngine:
                     "fill": tb.fill,
                     "border": tb.border_color,
                 })
+
+    def _textbox_anchor_x(
+        self, tb, w: float, available_width: float, px_per_pt: float
+    ) -> float:
+        """Local x offset for a textbox anchor.
+
+        When the anchor positions the box with ``wp:align`` (left/center/right)
+        instead of a ``posOffset``, compute the offset from the available width
+        so the box aligns within the column/margin.  Otherwise fall back to the
+        explicit ``pos_x``.
+        """
+        if tb.align_x:
+            factor = {"left": 0.0, "center": 0.5, "right": 1.0}.get(tb.align_x, 0.0)
+            return max(0.0, (available_width - w) * factor)
+        return tb.pos_x * px_per_pt
 
     def _align_offset(self, alignment: Alignment, line_width: float, avail: float) -> float:
         """Horizontal offset for alignment."""
@@ -2101,6 +2253,107 @@ class LayoutEngine:
     def _layout_table_inner(self, table: Table, available_width: float, px_per_pt: float):
         return self.table_layout.layout(table, available_width, px_per_pt)
 
+    def _split_block_at_line(
+        self, block: BlockBox, n_first: int
+    ) -> Tuple[BlockBox, BlockBox]:
+        """Split a paragraph block into two at a line boundary for pagination.
+
+        Word breaks a paragraph across a page boundary by default (unless
+        ``w:keepLines`` is set): the first lines stay on the current page and
+        the remainder flows to the next.  docx2img otherwise treats the whole
+        paragraph as an atomic block, which pushes it entirely to the next page
+        and underfills the current one — cascading into extra pages.
+
+        ``n_first`` lines go to the first part; the rest to the second.  Paragraph
+        spacing/borders attach only to the outer edges (space_before + top border
+        on the first part, space_after + bottom border on the second).
+        """
+        first = BlockBox(
+            lines=block.lines[:n_first],
+            x=block.x,
+            width=block.width,
+            element=block.element,
+            space_before=block.space_before,
+            space_after=0.0,
+            page_break_before=block.page_break_before,
+            page_break_after=False,
+            para_borders=dict(block.para_borders),
+            border_pad_top=block.border_pad_top,
+            border_pad_bottom=0.0,
+        )
+        first.height = (
+            sum(l.height for l in first.lines)
+            + first.space_before
+            + first.border_pad_top
+        )
+
+        second = BlockBox(
+            lines=block.lines[n_first:],
+            x=block.x,
+            width=block.width,
+            element=block.element,
+            space_before=0.0,
+            space_after=block.space_after,
+            page_break_before=False,
+            page_break_after=block.page_break_after,
+            para_borders=dict(block.para_borders),
+            border_pad_top=0.0,
+            border_pad_bottom=block.border_pad_bottom,
+        )
+        second.height = (
+            sum(l.height for l in second.lines)
+            + second.space_after
+            + second.border_pad_bottom
+        )
+        return first, second
+
+    def _split_table_block(
+        self, block: BlockBox, n_first: int, content_width: float, px_per_pt: float
+    ) -> Tuple[BlockBox, BlockBox]:
+        """Split a table block into two at a row boundary for pagination.
+
+        Word breaks a table across a page boundary row-by-row by default
+        (unless a row sets ``w:cantSplit``, which only forbids splitting
+        *within* that row — breaking *between* rows is always allowed).
+        docx2img otherwise treats the whole table as an atomic block, pushing
+        it entirely to the next page and underfilling the current one.
+
+        ``n_first`` rows go to the first part; the rest to the second.  Each
+        part is re-laid-out so borders close correctly at the new table edges
+        (the continuation row gains a top border, the parting row a bottom
+        one).  Column widths are row-independent for fixed-layout tables, so
+        both parts align identically to the original.
+        """
+        table = block.element
+        table_a = Table(
+            rows=table.rows[:n_first],
+            col_widths=list(table.col_widths),
+            props=table.props,
+        )
+        table_b = Table(
+            rows=table.rows[n_first:],
+            col_widths=list(table.col_widths),
+            props=table.props,
+        )
+        # Column widths are row-independent for fixed-layout tables, so both
+        # sub-tables lay out to the same width as the original.  Re-layout only
+        # to rebuild geometry/borders for the new row subsets; the horizontal
+        # position is then forced back to the original block.x so alignment is
+        # preserved exactly.
+        first = self._layout_table(table_a, 0.0, content_width, px_per_pt)
+        second = self._layout_table(table_b, 0.0, content_width, px_per_pt)
+        first.x = block.x
+        first.width = block.width
+        second.x = block.x
+        second.width = block.width
+        first.space_before = block.space_before
+        first.page_break_before = block.page_break_before
+        second.space_after = block.space_after
+        second.page_break_after = block.page_break_after
+        first.height += first.space_before
+        second.height += second.space_after
+        return first, second
+
     def _paginate(
         self,
         blocks: List[BlockBox],
@@ -2141,11 +2394,14 @@ class LayoutEngine:
             page = new_page()
             current_y = margin_top
 
-        def _apply_spacing_constraints(block: BlockBox, at_top: bool) -> None:
+        def _apply_spacing_constraints(block: BlockBox, at_top: bool, suppress_before: bool) -> None:
             """Adjust block height for page-top space_before suppression and
             bottom-of-page space_after truncation."""
-            # Suppress space_before at the top of a page/column.
-            if at_top and block.space_before > 0:
+            # Suppress space_before at the top of a page/column — but only
+            # when the paragraph flowed there naturally (overflow).  Word
+            # preserves spaceBefore for the first paragraph of a new section
+            # or after an explicit page break.
+            if at_top and suppress_before and block.space_before > 0:
                 block.height -= block.space_before
                 block.space_before = 0.0
             # Truncate trailing space_after if only the whitespace overflows.
@@ -2164,36 +2420,137 @@ class LayoutEngine:
                     block.height = content_h
                     block.space_after = 0.0
 
-        for i, block in enumerate(blocks):
+        # Track whether we've broken to a new page within this section.
+        # spaceBefore is preserved on the section's first page but suppressed
+        # on overflow pages (Word behaviour).
+        _broke_page = False
+
+        i = 0
+        while i < len(blocks):
+            block = blocks[i]
             at_page_top = abs(current_y - margin_top) < 0.5
-            _apply_spacing_constraints(block, at_page_top)
+            _apply_spacing_constraints(block, at_page_top, _broke_page)
 
             force_break = block.page_break_before and bool(page.blocks)
 
             # Soft overflow
             overflows = (current_y - margin_top + block.height) > available + 0.5
 
-            # Orphan short block: fits alone but next block would be forced to a
-            # new page — keep heading/caption with its following content.
-            # Invisible (empty) neighbours never trigger this: an empty
-            # paragraph spilling over is not worth dragging real content along.
+            # Keep-with-next: when a paragraph has w:keepNext, Word forces a
+            # page break if the paragraph fits but its successor would overflow.
+            # Only applies when keepNext is explicitly set (not a generic
+            # heuristic for all short blocks).
             if (
                 not force_break
                 and not overflows
                 and page.blocks
                 and i + 1 < len(blocks)
                 and not block.table_box
-                and block.height <= 100
                 and self._block_has_ink(block)
             ):
-                next_b = blocks[i + 1]
-                remain_after = available - (current_y - margin_top + block.height)
-                if remain_after + 0.5 < next_b.height and self._block_has_ink(next_b):
-                    force_break = True
+                elem = block.element
+                has_keep_next = (
+                    isinstance(elem, Paragraph)
+                    and elem.props.keep_next
+                )
+                if has_keep_next:
+                    next_b = blocks[i + 1]
+                    remain_after = available - (current_y - margin_top + block.height)
+                    if remain_after + 0.5 < next_b.height and self._block_has_ink(next_b):
+                        force_break = True
+
+            # Split a paragraph across the page boundary the way Word does:
+            # the lines that fit stay on the current page and the remainder
+            # flows to the next (unless w:keepLines keeps the paragraph whole).
+            # Without this, an over-tall paragraph is pushed entirely to the
+            # next page, underfilling the current one and cascading into extra
+            # pages.
+            if (
+                overflows
+                and not force_break
+                and page.blocks
+                and block.table_box is None
+                and not block.float_boxes
+                and not block.textbox_boxes
+                and len(block.lines) >= 2
+                and not (
+                    isinstance(block.element, Paragraph)
+                    and block.element.props.keep_lines
+                )
+            ):
+                space_left = available - (current_y - margin_top)
+                space_left -= block.space_before + block.border_pad_top
+                acc = 0.0
+                n_fit = 0
+                for ln in block.lines:
+                    if acc + ln.height > space_left + 0.5:
+                        break
+                    acc += ln.height
+                    n_fit += 1
+                min_keep = 2 if (
+                    isinstance(block.element, Paragraph)
+                    and block.element.props.widow_control
+                ) else 1
+                n_remain = len(block.lines) - n_fit
+                if n_fit >= min_keep and n_remain >= min_keep:
+                    first, second = self._split_block_at_line(block, n_fit)
+                    blocks[i] = first
+                    blocks.insert(i + 1, second)
+                    block = first
+                    overflows = (
+                        current_y - margin_top + block.height
+                    ) > available + 0.5
+
+            # Split a table across the page boundary row-by-row the way Word
+            # does: the rows that fit stay on the current page and the rest
+            # flow to the next.  Without this, an over-tall table is pushed
+            # entirely to the next page, leaving the current one half-empty and
+            # cascading into extra pages.  Breaking between rows is always
+            # allowed (w:cantSplit only forbids splitting *within* a row).
+            if (
+                overflows
+                and not force_break
+                and page.blocks
+                and block.table_box is not None
+                and len(block.table_box.row_heights) >= 2
+            ):
+                space_left = available - (current_y - margin_top)
+                space_left -= block.space_before
+                row_hs = block.table_box.row_heights
+                acc = 0.0
+                n_fit = 0
+                for rh in row_hs:
+                    if acc + rh > space_left + 0.5:
+                        break
+                    acc += rh
+                    n_fit += 1
+                n_remain = len(row_hs) - n_fit
+                if n_fit >= 1 and n_remain >= 1:
+                    content_width = page_width - margin_left - margin_right
+                    first, second = self._split_table_block(
+                        block, n_fit, content_width, self.config.px_per_pt
+                    )
+                    blocks[i] = first
+                    blocks.insert(i + 1, second)
+                    block = first
+                    overflows = (
+                        current_y - margin_top + block.height
+                    ) > available + 0.5
 
             if force_break or (overflows and page.blocks):
+                # Suppress a trailing no-ink block (e.g. empty section-break
+                # paragraph) that would otherwise create a near-empty page.
+                # Word does not emit a visible page for such bookkeeping marks.
+                if (
+                    overflows
+                    and not force_break
+                    and i == len(blocks) - 1
+                    and not self._block_has_ink(block)
+                ):
+                    break
                 pages.append(page)
                 page = new_page()
+                _broke_page = True
                 if force_break:
                     page.had_hard_break = True
                 current_y = margin_top
@@ -2211,24 +2568,31 @@ class LayoutEngine:
             if (current_y - margin_top + block.height) > available + 0.5 and page.blocks:
                 pages.append(page)
                 page = new_page()
+                _broke_page = True
                 current_y = margin_top
-            # Re-check orphan rule after band skip
+            # Re-check keep-with-next after band skip
             elif (
                 page.blocks
                 and i + 1 < len(blocks)
                 and not block.table_box
-                and block.height <= 100
                 and self._block_has_ink(block)
             ):
-                next_b = blocks[i + 1]
-                remain_after = available - (current_y - margin_top + block.height)
-                if remain_after + 0.5 < next_b.height \
-                        and self._block_has_ink(next_b) and (
-                    current_y - margin_top + block.height
-                ) <= available + 0.5:
-                    pages.append(page)
-                    page = new_page()
-                    current_y = margin_top
+                elem = block.element
+                has_keep_next = (
+                    isinstance(elem, Paragraph)
+                    and elem.props.keep_next
+                )
+                if has_keep_next:
+                    next_b = blocks[i + 1]
+                    remain_after = available - (current_y - margin_top + block.height)
+                    if remain_after + 0.5 < next_b.height \
+                            and self._block_has_ink(next_b) and (
+                        current_y - margin_top + block.height
+                    ) <= available + 0.5:
+                        pages.append(page)
+                        page = new_page()
+                        _broke_page = True
+                        current_y = margin_top
 
             # Position block
             block.y = current_y
@@ -2257,7 +2621,10 @@ class LayoutEngine:
                 pages.append(page)
                 page = new_page()
                 page.had_hard_break = True
+                _broke_page = True
                 current_y = margin_top
+
+            i += 1
 
         if page.blocks or not pages:
             pages.append(page)
@@ -2303,18 +2670,47 @@ class LayoutEngine:
             block.table_box.y = block.y + block.space_before
             return
 
-        y = block.y + block.space_before
+        y = block.y + block.space_before + block.border_pad_top
+        grid = self._grid_line_pitch_px
         for line in block.lines:
             line.y = y
             baseline_y = y
+            # Document-grid baseline snapping (Word snapToGrid).  Word places
+            # each text baseline on a grid line (a multiple of linePitch from
+            # the page top).  The natural baseline is line.y + line.ascent; snap
+            # it up to the next grid line, keeping the glyphs inside the line
+            # box.  Line heights are already grid-snapped, so this only shifts
+            # text within its own line box and never changes pagination.
+            grid_shift = 0.0
+            has_visible_text = any(
+                g.text and g.text.strip() for g in line.glyphs
+            )
+            if (
+                grid
+                and grid > 0
+                and line.ascent > 0
+                and has_visible_text
+            ):
+                natural_baseline = y + line.ascent
+                snapped = math.ceil((natural_baseline - 0.5) / grid) * grid
+                if snapped <= y + line.height - line.descent + 0.5:
+                    grid_shift = snapped - natural_baseline
             for glyph in line.glyphs:
                 glyph.x = line.x + glyph.x
-                offset = 0.0
+                offset = grid_shift
+                if (
+                    glyph.image is not None
+                    and not has_visible_text
+                    and line.height > glyph.height
+                ):
+                    # Image-only line in a taller (e.g. grid-snapped) box:
+                    # Word centres the picture vertically in the box.
+                    offset += (line.height - glyph.height) / 2.0
                 if glyph.props:
                     if glyph.props.vertical_align == "superscript":
-                        offset = -line.ascent * 0.35
+                        offset += -line.ascent * 0.35
                     elif glyph.props.vertical_align == "subscript":
-                        offset = line.ascent * 0.25
+                        offset += line.ascent * 0.25
                     if glyph.props.position_offset:
                         offset -= glyph.props.position_offset * self.config.px_per_pt
                 glyph.y = baseline_y + offset

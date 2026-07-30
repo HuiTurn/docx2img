@@ -105,6 +105,10 @@ class ParaProps:
     alignment: Alignment = Alignment.LEFT
     space_before: float = 0.0         # pt
     space_after: float = 0.0          # pt
+    # Line-unit spacing (hundredths of a line; overrides twip values).
+    # Resolved against grid pitch at layout time.
+    space_before_lines: Optional[int] = None
+    space_after_lines: Optional[int] = None
     line_spacing: float = 1.0         # 倍数 (auto)
     line_spacing_exact: Optional[float] = None  # pt (exact/atLeast)
     line_spacing_rule: str = "auto"   # auto / exact / atLeast
@@ -127,6 +131,12 @@ class ParaProps:
     keep_lines: bool = False
     page_break_before: bool = False
     widow_control: bool = True
+    # CJK auto-spacing (Word inserts a small gap at script boundaries):
+    #   auto_space_de — between East Asian and Western (Latin) text
+    #   auto_space_dn — between East Asian text and numbers
+    # Both default to True (Word applies them unless explicitly disabled).
+    auto_space_de: bool = True
+    auto_space_dn: bool = True
     outline_level: Optional[int] = None
     # Numbering
     num_id: Optional[int] = None
@@ -172,6 +182,10 @@ class ImageRun:
     pos_y: Optional[float] = None
     relative_x: str = "column"
     relative_y: str = "paragraph"
+    # Text distances (pt) from the anchor's distL/distR attributes.  Used to
+    # keep the anchor paragraph's text clear of wrapNone/inFrontOf objects.
+    dist_l: float = 0.0
+    dist_r: float = 0.0
 
 
 @dataclass
@@ -183,6 +197,15 @@ class TextBoxRun:
     pos_x: float = 0.0  # pt
     pos_y: float = 0.0  # pt
     wrap_type: str = "square"
+    # Horizontal anchoring: relativeFrom attribute plus optional wp:align
+    # (left/center/right).  When align_x is set it takes precedence over pos_x.
+    relative_x: str = "column"
+    align_x: Optional[str] = None
+    # spAutoFit: the shape auto-grows/shrinks to fit its text.  When such a
+    # box is also alignment-positioned (align_x), Word effectively centres the
+    # text at the alignment point; the layout engine mirrors this by shrinking
+    # the box width to the laid-out content width.
+    auto_fit: bool = False
     fill: Optional[tuple] = None
     border_color: Optional[tuple] = None
     margin_left: float = 0.0

@@ -7,6 +7,25 @@ from typing import List, Any
 from ..model.enums import Alignment
 
 
+# East-Asian script ranges (mirrors LineBreaker.CJK_RANGES).
+_CJK_RANGES = [
+    (0x4E00, 0x9FFF),
+    (0x3400, 0x4DBF),
+    (0x3000, 0x303F),
+    (0xFF00, 0xFFEF),
+    (0x3040, 0x309F),
+    (0x30A0, 0x30FF),
+    (0xAC00, 0xD7AF),
+]
+
+
+def _glyph_has_cjk(g) -> bool:
+    text = getattr(g, "text", "") or ""
+    return any(
+        lo <= ord(ch) <= hi for ch in text for lo, hi in _CJK_RANGES
+    )
+
+
 def apply_justification(
     lines: List[Any],
     available_width: float,
@@ -46,12 +65,34 @@ def _justify_line(line, available_width: float) -> None:
         # wide spacer likely a tab
         pass
 
+    # Word East-Asian justification (w:jc="both" on CJK content): the slack
+    # is spread uniformly across EVERY inter-glyph gap, not just spaces.
+    # CJK characters are individual glyphs and Latin words are atomic
+    # glyphs, so per-gap distribution never stretches inside a word and the
+    # per-gap share stays invisible — matching Word's EA layout.
+    if any(_glyph_has_cjk(g) for g in glyphs):
+        n_gaps = len(glyphs) - 1
+        if n_gaps <= 0:
+            return
+        # Span-based slack preserves existing auto-space / tab x offsets.
+        extra = available_width - (glyphs[-1].x + glyphs[-1].width)
+        if extra <= 0.5:
+            return
+        each = extra / n_gaps
+        shift = 0.0
+        for i, g in enumerate(glyphs):
+            g.x += shift
+            if i < n_gaps:
+                shift += each
+        line.width = available_width
+        return
+
     content_w = sum(g.width for g in glyphs)
     extra = available_width - content_w
     if extra <= 0.5:
         return
 
-    # Prefer expanding whitespace glyphs; else expand between CJK/all glyphs
+    # Pure-Latin lines: expand whitespace glyphs (Word behaviour).
     space_idxs = [
         i for i, g in enumerate(glyphs)
         if g.text and g.text.strip() == "" and not g.image and g.width < 24
@@ -64,7 +105,7 @@ def _justify_line(line, available_width: float) -> None:
     if space_idxs:
         gaps = space_idxs
     else:
-        # CJK-only lines: do NOT distribute (looks like letter-spacing); leave ragged
+        # No whitespace to expand: leave ragged.
         return
 
     if not gaps:

@@ -129,6 +129,11 @@ class FontManager:
         self._metrics_cache: Dict[
             Tuple[str, int, int], Tuple[float, float, float]
         ] = {}
+        # (path, index) -> (cmap dict, advance dict, unitsPerEm) for exact
+        # advance-width measurement (None when the font cannot be parsed).
+        self._advance_cache: Dict[
+            Tuple[str, int], Optional[Tuple[dict, dict, int]]
+        ] = {}
         self._missing_log: list = []
         # codepoint -> resolved font path (or None) for glyph-coverage scan
         self._char_font_cache: Dict[int, Optional[str]] = {}
@@ -302,6 +307,67 @@ class FontManager:
             res = (0.0, 0.0, 0.0)
         self._metrics_cache[key] = res
         return res
+
+    def get_text_advance(
+        self,
+        font: ImageFont.ImageFont,
+        text: str,
+        size_px: float,
+    ) -> Optional[float]:
+        """Exact horizontal advance of ``text`` in pixels via fontTools hmtx.
+
+        PIL's ``getlength``/``getbbox`` report hinted advances rounded to whole
+        pixels at load size, which accumulates per-glyph error across a line
+        (at 150dpi a 9pt em is 18.75px but every glyph reports 19px).  Word
+        lays text out with fractional design advances, so line breaks drift.
+        Reading hmtx advances scaled by the *fractional* intended size mirrors
+        Word's measurement.  Returns ``None`` when the font file cannot be
+        parsed or a character is missing (caller falls back to PIL metrics).
+        """
+        if not text:
+            return 0.0
+        path = getattr(font, "path", None)
+        if not path or size_px <= 0:
+            return None
+        index = int(getattr(font, "index", 0) or 0)
+        key = (str(path), index)
+        if key not in self._advance_cache:
+            entry = None
+            try:
+                from fontTools.ttLib import TTFont
+
+                tt = TTFont(key[0], fontNumber=index, lazy=True)
+                try:
+                    cmap = tt.getBestCmap() or {}
+                    # Materialize glyph -> advance before closing the font.
+                    advances = {
+                        g: m[0] for g, m in tt["hmtx"].metrics.items()
+                    }
+                    upem = int(tt["head"].unitsPerEm)
+                    if cmap and advances and upem > 0:
+                        entry = (dict(cmap), advances, upem)
+                finally:
+                    try:
+                        tt.close()
+                    except Exception:
+                        pass
+            except Exception:
+                entry = None
+            self._advance_cache[key] = entry
+        entry = self._advance_cache[key]
+        if not entry:
+            return None
+        cmap, advances, upem = entry
+        total = 0
+        for ch in text:
+            glyph = cmap.get(ord(ch))
+            if glyph is None:
+                return None
+            adv = advances.get(glyph)
+            if adv is None:
+                return None
+            total += adv
+        return total * float(size_px) / upem
 
     def get_font_for_char(
         self,

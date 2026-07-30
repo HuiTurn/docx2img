@@ -44,6 +44,18 @@ class LineBreaker:
     NO_START_CHARS = set("，。、；：！？）】》」』〉,.;:!?)］〕〗〙〛〉》」』】〕］＞％‰′″℃°")
     NO_END_CHARS = set("（【《「『〈(［〔〖〘〚〈《「『【〔［＜￥＄＠＃")
 
+    # Ranges of genuine East-Asian letters.  CJK punctuation (0x3000-0x303F)
+    # and full-width forms (0xFF00-0xFFEF, e.g. ～) are deliberately absent:
+    # Word's autoSpaceDE/DN inserts gaps only at real ideograph/kana/hangul
+    # transitions, never around full-width symbols.
+    EA_LETTER_RANGES = [
+        (0x4E00, 0x9FFF),
+        (0x3400, 0x4DBF),
+        (0x3040, 0x309F),
+        (0x30A0, 0x30FF),
+        (0xAC00, 0xD7AF),
+    ]
+
     def __init__(self, config: Config, font_manager: Optional[FontManager] = None):
         self.config = config
         self.font_manager = font_manager or FontManager(config)
@@ -57,6 +69,17 @@ class LineBreaker:
             return False
         cp = ord(ch[0])
         return any(lo <= cp <= hi for lo, hi in self.CJK_RANGES)
+
+    def is_ea_letter(self, ch: str) -> bool:
+        """Check for genuine East-Asian letters (ideograph/kana/hangul).
+
+        Unlike :meth:`is_cjk` this excludes CJK punctuation and full-width
+        symbols; only these letters trigger Word's autoSpaceDE/DN gaps.
+        """
+        if not ch:
+            return False
+        cp = ord(ch[0])
+        return any(lo <= cp <= hi for lo, hi in self.EA_LETTER_RANGES)
 
     def can_break_before(self, ch: str) -> bool:
         """Whether this character may appear at line start"""
@@ -111,6 +134,12 @@ class LineBreaker:
         # Expand into measurable units (CJK char / Latin word / space / tab)
         units = self._tokenize(tokens, px_per_pt)
 
+        # Word inserts a small gap at East-Asian ↔ Latin / number script
+        # boundaries (autoSpaceDE / autoSpaceDN, both on by default).  The
+        # source text carries no explicit space there, so mirror Word by
+        # injecting a thin auto-space unit at each qualifying boundary.
+        units = self._insert_auto_spaces(units, para.props, px_per_pt)
+
         current_units: List[dict] = []
         current_width = 0.0
         line_index = 0
@@ -140,9 +169,13 @@ class LineBreaker:
 
         # Initial band
         wrap_x, max_width = _resolve_band(0.0, 14.0, first_line_extra)
+        # Kinsoku line compression: pixels the pending line overruns the wrap
+        # edge and must shrink by (Word squeezes CJK gaps slightly instead of
+        # wrapping a lone character onto a near-empty line).
+        pending_compress = 0.0
 
         def flush_line(force: bool = False) -> None:
-            nonlocal current_units, current_width, line_index, max_width, est_y, wrap_x
+            nonlocal current_units, current_width, line_index, max_width, est_y, wrap_x, pending_compress
             if not current_units and not force:
                 return
             line = self._units_to_line(
@@ -153,6 +186,9 @@ class LineBreaker:
                 LineBox,
                 grid_line_pitch_px=grid_line_pitch_px,
             )
+            if pending_compress > 0.0:
+                self._compress_line(line, pending_compress)
+                pending_compress = 0.0
             line._wrap_x = wrap_x  # type: ignore[attr-defined]
             line._wrap_width = max_width  # type: ignore[attr-defined]
             lines.append(line)
@@ -239,6 +275,47 @@ class LineBreaker:
                 if prev.get("is_tab") and unit_w <= float(prev.get("tab_follow_w") or unit_w) + 1.0:
                     pass
                 else:
+                    # overflowPunct: a closing mark that may not start a line
+                    # hangs past the wrap edge (Word behaviour) instead of
+                    # dragging the preceding character to the next line.
+                    nx = unit["text"][:1]
+                    if nx and self.is_cjk(nx) and not self.can_break_before(nx):
+                        current_units.append(unit)
+                        current_width += unit_w
+                        i += 1
+                        continue
+                    # Kinsoku line compression (Word EA behaviour): when the
+                    # next character overflows by only a tiny amount, pull it
+                    # onto the line and shrink the CJK inter-glyph gaps
+                    # slightly instead of wrapping a lone character onto a
+                    # near-empty line.  Never preempts a clean break at a
+                    # space or inside a tabbed (TOC) line.
+                    over = current_width + unit_w - max_width
+                    if (
+                        over > 0.0
+                        and nx
+                        and nx.strip()
+                        and not unit.get("is_tab")
+                        and unit.get("image") is None
+                        and unit.get("math_box") is None
+                        and current_units[-1]["text"][-1:] != " "
+                        and not any(u.get("is_tab") for u in current_units)
+                    ):
+                        em = (
+                            (unit["props"].font_size if unit.get("props") else 12.0)
+                            or 12.0
+                        ) * px_per_pt
+                        n_cjk = sum(
+                            1
+                            for u in current_units
+                            if u["text"][:1] and self.is_cjk(u["text"][:1])
+                        ) + (1 if self.is_cjk(nx) else 0)
+                        if n_cjk >= 4 and over <= 0.02 * em * n_cjk:
+                            current_units.append(unit)
+                            current_width += unit_w
+                            pending_compress = over
+                            i += 1
+                            continue
                     # Try to find a legal break point respecting punctuation rules
                     break_at = self._find_break_index(current_units, unit)
                     if break_at is not None and break_at > 0:
@@ -247,9 +324,14 @@ class LineBreaker:
                         # Word discards the inter-word space used as the wrap
                         # opportunity: it must not start the next line, and a
                         # trailing wrap space on the previous line is omitted.
-                        while keep and keep[-1].get("text") == " ":
+                        # A boundary auto-space is likewise dropped at the wrap.
+                        while keep and (
+                            keep[-1].get("text") == " " or keep[-1].get("auto_space")
+                        ):
                             keep.pop()
-                        while rest and rest[0].get("text") == " ":
+                        while rest and (
+                            rest[0].get("text") == " " or rest[0].get("auto_space")
+                        ):
                             rest.pop(0)
                         if keep:
                             current_units = keep
@@ -284,6 +366,19 @@ class LineBreaker:
 
             # Avoid starting next line with NO_START: push punctuation back if possible
             # Handled in _find_break_index when wrapping
+
+        # Word omits whitespace trailing at the paragraph end: it must not
+        # produce a stray whitespace-only final line.
+        while current_units and (
+            current_units[-1].get("auto_space")
+            or (
+                (current_units[-1].get("text") or "").strip() == ""
+                and not current_units[-1].get("is_tab")
+                and current_units[-1].get("image") is None
+                and current_units[-1].get("math_box") is None
+            )
+        ):
+            current_units.pop()
 
         flush_line()
         return lines
@@ -374,9 +469,10 @@ class LineBreaker:
                 nonlocal buf, buf_is_cjk
                 if not buf:
                     return
+                size_px = font_size_pt * px_per_pt
                 for seg_text, font in self._segment_by_font(buf, props, font_size_pt, px_per_pt):
-                    w, h = self._measure(seg_text, font, props, px_per_pt)
-                    units.append({
+                    w, h = self._measure(seg_text, font, props, px_per_pt, size_px=size_px)
+                    unit = {
                         "text": seg_text,
                         "props": props,
                         "font": font,
@@ -384,7 +480,8 @@ class LineBreaker:
                         "height": h,
                         "force_break": None,
                         "image": None,
-                    })
+                    }
+                    units.append(unit)
                 buf = ""
                 buf_is_cjk = None
 
@@ -392,7 +489,9 @@ class LineBreaker:
                 if ch == "\t":
                     emit_buf()
                     font = self._font_for_text(" ", props, font_size_pt, px_per_pt)
-                    space_w, space_h = self._measure(" ", font, props, px_per_pt)
+                    space_w, space_h = self._measure(
+                        " ", font, props, px_per_pt, size_px=font_size_pt * px_per_pt
+                    )
                     units.append({
                         "text": "\t",
                         "props": props,
@@ -408,7 +507,9 @@ class LineBreaker:
                 if ch == " ":
                     emit_buf()
                     font = self._font_for_text(" ", props, font_size_pt, px_per_pt)
-                    w, h = self._measure(" ", font, props, px_per_pt)
+                    w, h = self._measure(
+                        " ", font, props, px_per_pt, size_px=font_size_pt * px_per_pt
+                    )
                     units.append({
                         "text": " ",
                         "props": props,
@@ -445,15 +546,123 @@ class LineBreaker:
 
         return units
 
+    # Fraction of an em that Word's CJK↔Latin / CJK↔number auto-spacing
+    # occupies.  Calibrated against the Word golden images (see Phase 2 of the
+    # footer/spacing/pagination fix); ~1/4 em matches Word's inserted gap.
+    AUTO_SPACE_EM = 0.25
+
+    def _insert_auto_spaces(
+        self,
+        units: List[dict],
+        para_props,
+        px_per_pt: float,
+    ) -> List[dict]:
+        """Insert auto-space units at East-Asian ↔ Latin / number boundaries.
+
+        Mirrors Word's ``autoSpaceDE`` (East Asian ↔ Western text) and
+        ``autoSpaceDN`` (East Asian ↔ numbers).  Boundaries that already have an
+        explicit space, or that involve punctuation / symbols, are skipped — Word
+        only spaces genuine script transitions.
+        """
+        de = bool(getattr(para_props, "auto_space_de", True))
+        dn = bool(getattr(para_props, "auto_space_dn", True))
+        if not de and not dn:
+            return units
+        if len(units) < 2:
+            return units
+
+        out: List[dict] = []
+        for idx, unit in enumerate(units):
+            if idx > 0:
+                sp = self._auto_space_between(
+                    units[idx - 1], unit, de, dn, px_per_pt
+                )
+                if sp is not None:
+                    out.append(sp)
+            out.append(unit)
+        return out
+
+    def _auto_space_between(
+        self,
+        left: dict,
+        right: dict,
+        de: bool,
+        dn: bool,
+        px_per_pt: float,
+    ) -> Optional[dict]:
+        """Return an auto-space unit for the boundary ``left | right``, or None."""
+        # Skip non-text neighbours (images, math, tabs, breaks) and any boundary
+        # that already carries whitespace.
+        for u in (left, right):
+            if u.get("image") or u.get("math_box") or u.get("is_tab"):
+                return None
+            if u.get("force_break"):
+                return None
+        lt = left.get("text") or ""
+        rt = right.get("text") or ""
+        if not lt or not rt:
+            return None
+        lc, rc = lt[-1], rt[0]
+        if lc.isspace() or rc.isspace():
+            return None
+
+        l_cjk, r_cjk = self.is_cjk(lc), self.is_cjk(rc)
+        if l_cjk == r_cjk:
+            return None  # same script family — no transition
+
+        if l_cjk:
+            cjk_ch, other_ch, cjk_unit = lc, rc, left
+        else:
+            cjk_ch, other_ch, cjk_unit = rc, lc, right
+
+        if other_ch.isdigit():
+            if not dn:
+                return None
+        elif ("a" <= other_ch.lower() <= "z"):
+            if not de:
+                return None
+        else:
+            # Symbol / punctuation boundary — Word inserts no auto-space.
+            return None
+        # A CJK punctuation ideograph (e.g. ，。：) must not trigger spacing.
+        if cjk_ch in self.NO_START_CHARS or cjk_ch in self.NO_END_CHARS:
+            return None
+        # Full-width symbols (e.g. ～) are not "Asian text" for auto-spacing:
+        # Word packs 8.8～9.9 tightly, with no gaps around the tilde.
+        if not self.is_ea_letter(cjk_ch):
+            return None
+
+        props = cjk_unit.get("props") or RunProps()
+        font_size_pt = props.font_size or 12.0
+        if props.vertical_align in ("superscript", "subscript"):
+            font_size_pt *= 0.65
+        width = self.AUTO_SPACE_EM * font_size_pt * px_per_pt
+        return {
+            "text": "",
+            "props": props,
+            "font": cjk_unit.get("font"),
+            "width": width,
+            "height": cjk_unit.get("height") or font_size_pt * px_per_pt,
+            "force_break": None,
+            "image": None,
+            "auto_space": True,
+        }
+
     def _find_break_index(self, current_units: List[dict], next_unit: dict) -> Optional[int]:
         """Find index in current_units where we should break before wrapping next_unit.
 
         Prefer breaking after spaces / CJK / hyphens. Respect NO_START for next line
         and NO_END for end of current line.
         """
-        # Default: break at end of current_units (before next_unit)
-        # But if next_unit cannot start a line, try to pull it onto current... 
-        # Here we decide where within current_units to split when overflow already happened.
+        # Preferred split: immediately before next_unit.  Everything already
+        # accumulated fits by construction, so keep it all — maximal fill,
+        # matching Word.  Only walk backwards when this natural break is
+        # illegal (e.g. next_unit may not start a line).
+        last = current_units[-1]
+        last_ch = last["text"][-1:] if last["text"] else ""
+        next_ch = next_unit["text"][:1] if next_unit["text"] else ""
+        if self.can_break_after(last_ch) and self.can_break_before(next_ch):
+            return len(current_units)
 
         # Walk backwards looking for a legal break opportunity
         for i in range(len(current_units) - 1, 0, -1):
@@ -471,11 +680,12 @@ class LineBreaker:
             # Prefer break after whitespace / hyphen / CJK.  If ``curr`` itself
             # is a space unit, break *after* it so the next line does not start
             # with that wrap space (Word omits the break space).
-            if curr["text"] == " ":
+            if curr["text"] == " " or curr.get("auto_space"):
                 return i + 1 if i + 1 < len(current_units) else i
             if (
                 prev["text"].endswith(" ")
                 or prev["text"].endswith("-")
+                or prev.get("auto_space")
                 or self.is_cjk(prev_ch)
             ):
                 return i
@@ -484,7 +694,7 @@ class LineBreaker:
         if len(current_units) > 1:
             last = current_units[-1]
             prev = current_units[-2]
-            if last.get("text") == " ":
+            if last.get("text") == " " or last.get("auto_space"):
                 return len(current_units)
             if self.can_break_after(prev["text"][-1:] if prev["text"] else "") and self.can_break_before(
                 last["text"][:1] if last["text"] else ""
@@ -492,6 +702,32 @@ class LineBreaker:
                 return len(current_units) - 1
 
         return None
+
+    def _compress_line(self, line, over: float) -> None:
+        """Shrink a line's CJK inter-glyph gaps by ``over`` pixels.
+
+        Word's East-Asian line fitting squeezes the spacing between CJK
+        glyphs by a tiny, visually invisible amount before resorting to a
+        wrap.  Latin glyphs keep their advance; every glyph after a squeezed
+        CJK glyph shifts left so the line ends flush at the wrap edge.
+        """
+        if over <= 0.0:
+            return
+        idxs = [
+            i
+            for i, g in enumerate(line.glyphs)
+            if g.text and self.is_cjk(g.text[:1])
+        ]
+        if not idxs:
+            return
+        per = over / len(idxs)
+        idset = set(idxs)
+        shift = 0.0
+        for i, g in enumerate(line.glyphs):
+            g.x -= shift
+            if i in idset:
+                shift += per
+        line.width = max(0.0, line.width - over)
 
     def _units_to_line(
         self,
@@ -549,13 +785,24 @@ class LineBreaker:
                 continue
 
             if not text and not unit.get("force_break"):
+                # Auto-space: an invisible gap at a script boundary.  Advance
+                # the pen (and keep the line box tall enough) but emit no glyph.
+                if unit.get("auto_space"):
+                    x += unit["width"]
+                    max_height = max(max_height, unit.get("height", 0.0))
                 continue
             if text == "\t":
                 text = " "
             # Tab leaders: fill with dots/underscores visually via text
             leader = unit.get("tab_leader")
+            leader_dx = 0.0
             if leader and leader != "none" and unit.get("is_tab"):
-                text = self._leader_fill(leader, unit["width"], unit.get("font"))
+                text, leader_used = self._leader_fill(
+                    leader, unit["width"], unit.get("font")
+                )
+                # Word packs the leader flush against the tab stop so dot
+                # columns line up vertically across TOC lines.
+                leader_dx = max(0.0, unit["width"] - leader_used)
 
             font = unit["font"]
             props = unit["props"]
@@ -590,7 +837,7 @@ class LineBreaker:
 
             glyph = GlyphBox(
                 text=text,
-                x=x,
+                x=x + leader_dx,
                 y=0.0,
                 width=w,
                 height=h,
@@ -668,11 +915,12 @@ class LineBreaker:
         # A section document grid fixes baselines at linePitch intervals.
         # Snap the resolved line box upward to a whole grid interval; a
         # larger line therefore occupies two (or more) intervals instead of
-        # drifting subsequent baselines off-grid.
+        # drifting subsequent baselines off-grid.  Image-only lines snap too:
+        # Word grows an inline picture's line to whole grid intervals (the
+        # picture is then centred vertically in the enlarged box).
         if (
             grid_line_pitch_px
             and grid_line_pitch_px > 0
-            and not image_only
             and rule != "exact"
         ):
             intervals = max(
@@ -698,24 +946,27 @@ class LineBreaker:
             return 0.0
         return float(u.get("width") or 0.0)
 
-    def _leader_fill(self, leader: str, width: float, font) -> str:
+    def _leader_fill(self, leader: str, width: float, font) -> Tuple[str, float]:
         """Fill a tab gap with a Word-like leader pattern.
 
-        Dotted leaders use ". " (dot + space) rather than packed periods so
-        TOC lines match print layout more closely.
+        Word packs leader glyphs tightly (no inter-leader spaces) and aligns
+        the fill so its last glyph ends flush at the tab stop, which keeps
+        dot columns lined up vertically across TOC lines.  Returns
+        ``(text, used_width)`` so the caller can right-align the fill inside
+        the tab gap.
         """
         if not font or width <= 0:
-            return " "
+            return " ", 0.0
         if leader == "dot":
-            unit = ". "
+            unit = "."
         elif leader == "middleDot":
-            unit = "· "
+            unit = "·"
         elif leader == "hyphen":
-            unit = "- "
+            unit = "-"
         elif leader == "underscore":
             unit = "_"
         else:
-            return " "
+            return " ", 0.0
         try:
             uw = float(font.getlength(unit)) if hasattr(font, "getlength") else 0.0
             if uw <= 0:
@@ -725,9 +976,7 @@ class LineBreaker:
             uw = 8.0
         uw = max(1.0, uw)
         n = max(1, int(width / uw))
-        filled = unit * n
-        # Trim trailing space so the page number sits flush
-        return filled.rstrip(" ") if leader != "underscore" else filled[:n]
+        return unit * n, n * uw
 
     def _font_for_text(
         self, text: str, props: RunProps, font_size_pt: float, px_per_pt: float
@@ -764,17 +1013,35 @@ class LineBreaker:
         return segments
 
     def _measure(
-        self, text: str, font: ImageFont.ImageFont, props: RunProps, px_per_pt: float
+        self,
+        text: str,
+        font: ImageFont.ImageFont,
+        props: RunProps,
+        px_per_pt: float,
+        size_px: Optional[float] = None,
     ) -> Tuple[float, float]:
         if not text:
             return 0.0, 0.0
+        # Width: exact design advances (fontTools hmtx) when possible.  Pillow
+        # loads fonts at an integer-rounded pixel size and reports hinted
+        # advances; the per-glyph rounding error accumulates across a line and
+        # can push it past the wrap boundary.  Word lays out with fractional
+        # design widths, so prefer them here.
+        w: Optional[float] = None
+        if size_px and size_px > 0:
+            try:
+                w = self.font_manager.get_text_advance(font, text, size_px)
+            except Exception:
+                w = None
         try:
             bbox = font.getbbox(text)
-            w = float(bbox[2] - bbox[0])
             h = float(bbox[3] - bbox[1])
+            if w is None:
+                w = float(bbox[2] - bbox[0])
         except Exception:
-            w = len(text) * (props.font_size if props else 12.0) * px_per_pt * 0.5
             h = (props.font_size if props else 12.0) * px_per_pt
+            if w is None:
+                w = len(text) * (props.font_size if props else 12.0) * px_per_pt * 0.5
 
         # Character width scaling (w:w, percentage)
         if props and props.scale and props.scale != 100:

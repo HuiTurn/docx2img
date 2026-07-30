@@ -27,3 +27,5 @@ Thumbs.db
 
 tests/output/
 verify_downloads/
+scripts/verify_external.py
+logs/

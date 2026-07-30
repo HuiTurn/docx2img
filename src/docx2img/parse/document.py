@@ -119,15 +119,42 @@ class DocumentParser:
             self._parse_paragraph,
             self._parse_table,
         )
+        # Save the original drawing parser rels
+        original_rels = self._drawing_parser.rels if self._drawing_parser else {}
         for section in model.sections:
             for htype, rid in section.header_refs.items():
                 xml = self.package.headers.get(rid)
                 if xml:
+                    # Get header filename and swap rels for image resolution
+                    header_filename = self._get_part_filename(rid, 'header')
+                    if header_filename and self._drawing_parser:
+                        header_rels = self.package.header_rels.get(header_filename, {})
+                        self._drawing_parser.rels = header_rels
                     section.header_bodies[htype] = hf_parser.parse(xml)
             for ftype, rid in section.footer_refs.items():
                 xml = self.package.footers.get(rid)
                 if xml:
+                    # Get footer filename and swap rels for image resolution
+                    footer_filename = self._get_part_filename(rid, 'footer')
+                    if footer_filename and self._drawing_parser:
+                        footer_rels = self.package.footer_rels.get(footer_filename, {})
+                        self._drawing_parser.rels = footer_rels
                     section.footer_bodies[ftype] = hf_parser.parse(xml)
+        # Restore original rels
+        if self._drawing_parser:
+            self._drawing_parser.rels = original_rels
+
+        # Header/footer inheritance: sections without explicit headers/footers
+        # inherit from the previous section (OOXML behavior)
+        for i in range(1, len(model.sections)):
+            prev = model.sections[i - 1]
+            curr = model.sections[i]
+            # Inherit header bodies if current section has none
+            if not curr.header_bodies and prev.header_bodies:
+                curr.header_bodies = dict(prev.header_bodies)
+            # Inherit footer bodies if current section has none
+            if not curr.footer_bodies and prev.footer_bodies:
+                curr.footer_bodies = dict(prev.footer_bodies)
 
         # Numbering
         model.numbering = NumberingParser().parse(self.package.numbering_xml or b"")
@@ -677,6 +704,28 @@ class DocumentParser:
             return self._table_parser.parse(elem)
         finally:
             self._table_style_stack.pop()
+
+    def _get_part_filename(self, rid: str, part_type: str) -> Optional[str]:
+        """Get the filename for a header/footer part from its rId.
+        
+        Args:
+            rid: Relationship ID (e.g., 'rId5')
+            part_type: 'header' or 'footer'
+            
+        Returns:
+            Filename like 'header1.xml' or None if not found
+        """
+        target = self.package.document_rels.get(rid, '')
+        if not target:
+            return None
+        target = target.replace('\\', '/').lstrip('/')
+        if target.startswith('word/'):
+            target = target[5:]
+        # Extract just the filename
+        filename = target.split('/')[-1]
+        if part_type in filename.lower():
+            return filename
+        return None
 
     def _parse_section(self, elem) -> Optional[Section]:
         """Parse w:sectPr to Section"""

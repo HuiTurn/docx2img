@@ -345,15 +345,24 @@ class DrawingParser:
 
         wrap_type = "square"
         pos_x = pos_y = 0.0
+        relative_x = "column"
+        align_x = None
         if host is not None and host.tag.endswith("anchor"):
             if host.find(f"{{{WP}}}wrapTopAndBottom") is not None:
                 wrap_type = "topAndBottom"
             elif host.find(f"{{{WP}}}wrapNone") is not None:
                 wrap_type = "inFrontOf"
-            pos_h = host.find(f"{{{WP}}}positionH/{{{WP}}}posOffset")
+            pos_h_el = host.find(f"{{{WP}}}positionH")
+            if pos_h_el is not None:
+                relative_x = pos_h_el.get("relativeFrom", "column")
+                align_el = pos_h_el.find(f"{{{WP}}}align")
+                if align_el is not None and align_el.text:
+                    align_x = align_el.text.strip()
+                else:
+                    pos_h = pos_h_el.find(f"{{{WP}}}posOffset")
+                    if pos_h is not None and pos_h.text:
+                        pos_x = Units.emu_to_pt(int(pos_h.text))
             pos_v = host.find(f"{{{WP}}}positionV/{{{WP}}}posOffset")
-            if pos_h is not None and pos_h.text:
-                pos_x = Units.emu_to_pt(int(pos_h.text))
             if pos_v is not None and pos_v.text:
                 pos_y = Units.emu_to_pt(int(pos_v.text))
 
@@ -370,6 +379,7 @@ class DrawingParser:
 
         margins = (0.0, 0.0, 0.0, 0.0)
         vertical_anchor = "top"
+        auto_fit = False
         if tx_body is not None:
             body_pr = tx_body.find(f"{{{A}}}bodyPr")
             if body_pr is not None:
@@ -393,6 +403,8 @@ class DrawingParser:
                     "ctr": "center",
                     "b": "bottom",
                 }.get(body_pr.get("anchor", "t"), "top")
+                if body_pr.find(f"{{{A}}}spAutoFit") is not None:
+                    auto_fit = True
 
         # Preserve the shape's background fill and outline so standalone text
         # boxes / autoshapes are not rendered as bare text.  Word emits these
@@ -404,6 +416,9 @@ class DrawingParser:
             sp_pr = wsp.find(f"{{{WPS}}}spPr")
             if sp_pr is not None:
                 fill, border = self._shape_fill_and_border(sp_pr)
+            body_pr = wsp.find(f"{{{WPS}}}bodyPr")
+            if body_pr is not None and body_pr.find(f"{{{A}}}spAutoFit") is not None:
+                auto_fit = True
 
         return TextBoxRun(
             paragraphs=paragraphs,
@@ -412,6 +427,9 @@ class DrawingParser:
             pos_x=pos_x,
             pos_y=pos_y,
             wrap_type=wrap_type,
+            relative_x=relative_x,
+            align_x=align_x,
+            auto_fit=auto_fit,
             fill=fill,
             border_color=border,
             margin_left=margins[0],
@@ -592,6 +610,21 @@ class DrawingParser:
             if off is not None and off.text:
                 pos_y = Units.emu_to_pt(int(off.text))
 
+        # Text distances (EMU) — Word keeps the anchor paragraph's text clear
+        # of a wrapNone/inFrontOf object by these amounts.
+        dist_l = dist_r = 0.0
+        for attr, _name in (("distL", "l"), ("distR", "r")):
+            raw = el.get(attr)
+            if raw:
+                try:
+                    val = Units.emu_to_pt(int(raw))
+                except ValueError:
+                    val = 0.0
+                if attr == "distL":
+                    dist_l = val
+                else:
+                    dist_r = val
+
         return ImageRun(
             media_ref=rid or "",
             data=data,
@@ -602,6 +635,8 @@ class DrawingParser:
             pos_y=pos_y,
             relative_x=relative_x,
             relative_y=relative_y,
+            dist_l=dist_l,
+            dist_r=dist_r,
         )
 
     def _extent(self, el):

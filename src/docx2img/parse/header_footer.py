@@ -153,6 +153,12 @@ class HeaderFooterParser:
 
     def _inject_field_placeholders(self, para_elem) -> None:
         """Replace fldSimple / complex fields with placeholder w:r siblings."""
+        # Fields nested inside text boxes (w:txbxContent) are evaluated too —
+        # e.g. a PAGE number inside a floating footer shape.
+        for txbx in para_elem.iter(f"{{{NS.W}}}txbxContent"):
+            for sub in txbx:
+                if sub.tag == f"{{{NS.W}}}p":
+                    self._inject_field_placeholders(sub)
         # fldSimple → replace element with a w:r containing placeholder
         for fld in list(para_elem.findall(f"{{{NS.W}}}fldSimple")):
             instr = fld.get(f"{{{NS.W}}}instr", "") or ""
