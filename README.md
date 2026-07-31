@@ -11,10 +11,12 @@ A pure Python `.docx` → image rendering engine. No Microsoft Office or LibreOf
 - Multi-section documents, landscape pages, multi-column layout
 - Headers, footers, and page numbers
 - Ordered / unordered lists with numbering
+- Word-style pagination with widow/orphan control and cross-page tables
+- CJK line breaking, punctuation hanging, justification, and document-grid layout
 - Justified text, tab stops, text boxes
 - OMML math (fractions, super/subscripts, radicals, accents, bars, limits, equation arrays)
 - Footnotes and endnotes with continuation pages
-- DrawingML shapes and text boxes
+- DrawingML and legacy VML shapes, text boxes, flowchart nodes, and arrows
 
 ## Installation
 
@@ -33,15 +35,15 @@ docx2img input.docx output.png --dpi 150
 ### Python API
 
 ```python
-from docx2img import convert, convert_to_images
+from docx2img import Config, convert, convert_to_images
 
-# Single image (first page or stitched)
+# A multi-page document is saved as output_1.png, output_2.png, ...
 convert("input.docx", "output.png", dpi=150)
 
 # Per-page images
-pages = convert_to_images("input.docx", dpi=150)
+pages = convert_to_images("input.docx", Config(dpi=150))
 for i, img in enumerate(pages):
-    img.save(f"page_{i}.png")
+    img.save(f"page_{i + 1}.png")
 ```
 
 ## Development

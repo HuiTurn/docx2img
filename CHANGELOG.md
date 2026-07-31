@@ -5,6 +5,37 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-07-31
+
+### Added
+
+- Legacy VML flowchart rendering for rectangles, diamonds, text boxes, connector
+  lines, arrowheads, fills, borders, insets, and overlay positioning
+- Cross-page flow for long paragraphs with widow/orphan control
+- Row-boundary table splitting so tables can use the remaining page area
+
+### Changed
+
+- Paragraph-relative floating objects now exclude text in later overlapping
+  paragraphs, improving tight and square text wrapping
+- CJK automatic line boxes and document-grid interval selection now use
+  typographic font metrics, including WPS-compatible unsnapped line spacing
+- CJK justification can absorb small overflow and hang closing punctuation at
+  the right edge instead of creating visibly underfilled lines
+
+### Fixed
+
+- Break-only paragraphs now retain their paragraph-mark height and trailing
+  spacing, preserving Word's blank intermediate page when a manual page break
+  overflows
+- Long paragraphs split by line instead of moving as one atomic block
+- CJK wrapping keeps the final character that still fits on the current line
+- Exact font family files now take priority over filename-derived aliases in
+  the same discovery tier. On macOS, `Times New Roman` no longer resolves to
+  `Times.ttc`, restoring the expected pagination and footnote continuation
+  points
+- Package metadata and `docx2img.__version__` now report the same version
+
 ## [0.1.1] - 2026-07-30
 
 ### Fixed
@@ -54,5 +85,6 @@ Initial release.
   fallback/metrics via fontTools and Pillow
 - Published on PyPI as `docx2img`
 
+[0.1.2]: https://github.com/HuiTurn/docx2img/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/HuiTurn/docx2img/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/HuiTurn/docx2img/releases/tag/v0.1.0

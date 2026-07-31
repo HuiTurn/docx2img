@@ -1,6 +1,6 @@
 """docx2img - Pure Python DOCX to Image rendering engine"""
 
-__version__ = "0.1.0"
+__version__ = "0.1.2"
 
 from .api import convert, convert_to_images
 from .config import Config
