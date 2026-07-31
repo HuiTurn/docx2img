@@ -174,17 +174,27 @@ class FontManager:
     def _discover_fonts(self) -> Dict[str, str]:
         """Discover available fonts. Keys are lowercase names / stems."""
         font_paths: Dict[str, str] = {}
+        font_ranks: Dict[str, Tuple[int, int]] = {}
 
-        def register(name: str, path: str) -> None:
+        def register(name: str, path: str, source_rank: int) -> None:
+            def store(candidate: str, quality_rank: int) -> None:
+                key = candidate.lower()
+                rank = (source_rank, quality_rank)
+                if key not in font_ranks or rank < font_ranks[key]:
+                    font_paths[key] = path
+                    font_ranks[key] = rank
+
             key = name.lower()
-            if key not in font_paths:
-                font_paths[key] = path
+            # A file's own stem is authoritative within a discovery tier.
+            # This matters on macOS, where Times.ttc is visited before the
+            # exact "Times New Roman.ttf": the former's Windows filename alias
+            # must not permanently steal the latter's real family name.
+            store(key, 0)
             alias = self.WINDOWS_ALIASES.get(key)
-            if alias and alias.lower() not in font_paths:
-                font_paths[alias.lower()] = path
+            if alias:
+                store(alias, 1)
             for local in self.STEM_LOCAL_NAMES.get(key, []):
-                if local.lower() not in font_paths:
-                    font_paths[local.lower()] = path
+                store(local, 1)
             # "Family-Style" stems (e.g. Carlito-Regular, Caladea-BoldItalic):
             # register the bare family and style-suffixed keys used by
             # _resolve_path ("<family>bd", "<family>i", "<family>bi").
@@ -199,12 +209,11 @@ class FontManager:
                 }.get(style_key)
                 if suffix is not None and fam_key:
                     styled = fam_key + suffix
-                    if styled not in font_paths:
-                        font_paths[styled] = path
+                    store(styled, 0)
 
         for path in self.config.font_paths:
             if os.path.isfile(path):
-                register(Path(path).stem, path)
+                register(Path(path).stem, path, 0)
 
         for base in (
             Path(__file__).resolve().parent.parent.parent.parent / "fonts",
@@ -214,7 +223,7 @@ class FontManager:
             if base.is_dir():
                 for f in base.iterdir():
                     if f.suffix.lower() in (".ttf", ".ttc", ".otf"):
-                        register(f.stem, str(f))
+                        register(f.stem, str(f), 1)
 
         system_dirs = []
         if sys.platform == "win32":
@@ -240,7 +249,11 @@ class FontManager:
             for root, _, files in os.walk(sys_dir):
                 for f in files:
                     if f.lower().endswith((".ttf", ".ttc", ".otf")):
-                        register(Path(f).stem, os.path.join(root, f))
+                        register(
+                            Path(f).stem,
+                            os.path.join(root, f),
+                            2,
+                        )
 
         return font_paths
 

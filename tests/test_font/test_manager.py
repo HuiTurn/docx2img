@@ -1,5 +1,6 @@
 """Unit tests for FontManager glyph-coverage substitution."""
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -121,3 +122,17 @@ def test_metrics_use_the_loaded_platform_fallback(manager, monkeypatch):
         assert line_gap == pytest.approx(tt["hhea"].lineGap * scale)
     finally:
         tt.close()
+
+
+def test_exact_stem_beats_filename_alias_in_same_discovery_tier(tmp_path):
+    """An exact family file must replace an earlier filename-derived alias."""
+    alias_path = tmp_path / "times.ttf"
+    exact_path = tmp_path / "Times New Roman.ttf"
+    shutil.copyfile(CARLITO, alias_path)
+    shutil.copyfile(CALADEA, exact_path)
+
+    manager = FontManager(
+        Config(font_paths=[str(alias_path), str(exact_path)])
+    )
+
+    assert manager._font_paths["times new roman"] == str(exact_path)
